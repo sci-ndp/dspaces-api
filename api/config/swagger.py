@@ -1,7 +1,7 @@
 from pydantic_settings import BaseSettings
 
 
-class Settings(BaseSettings):
+class SwaggerSettings(BaseSettings):
     swagger_title: str = "EcoExplorer API"
     swagger_description: str = "API documentation"
     swagger_version: str = "0.0.1"
@@ -11,4 +11,4 @@ class Settings(BaseSettings):
         "extra": "allow",
     }
 
-swagger_settings = Settings()
+settings = SwaggerSettings()

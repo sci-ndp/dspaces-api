@@ -1,0 +1,43 @@
+version: '3.8'
+
+services: 
+
+  api:
+    container_name: dspaces-api
+    image: philipdavis/dspaces-build:v01082024
+    env_file: ./env_variables/.env_api
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: ./start.sh
+    ports:
+      - "${API_PORT}:${API_PORT}"
+    depends_on:
+      dspaces:
+        condition: service_healthy
+    environment:
+      - DSPACES_SERVER_PORT=${DSPACES_SERVER_PORT}
+      - API_PORT=${API_PORT}
+    networks:
+      - ds-backend
+
+  dspaces:
+    container_name: dspaces
+    image: philipdavis/dspaces-server:v01082024
+    env_file:  ./env_variables/.env_dspaces
+    environment:
+      - OFI_STRING=tcp://eth0:${DSPACES_SERVER_PORT}
+      - REPO_BRANCH=${DSPACES_SERVER_CHECKOUT}
+    healthcheck:
+      test: nc -z $(getent hosts dspaces | awk "{print \$1}") ${DSPACES_SERVER_PORT} || exit 1
+    ports:
+      - "${DSPACES_SERVER_PORT}:${DSPACES_SERVER_PORT}"
+    volumes:
+      - ./dspaces.toml:/dspaces.toml
+    networks:
+      - ds-backend
+
+networks:
+  ds-backend:
+    name: ds-backend
+    driver: bridge

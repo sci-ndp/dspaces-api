@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
-from .config import swagger_settings
+import api.routes as routes
+from .config import dspaces_settings, swagger_settings
 from .configure_services import configure_services
 
 # Create a FastAPI app instance with custom Swagger UI settings
@@ -21,11 +21,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static files from the 'static' directory
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 # Define an event handler for the 'startup' event to configure services on app
 # startup
 @app.on_event("startup")
 async def startup_event():
     await configure_services()
+
+app.include_router(routes.default_router, include_in_schema=False)
+app.include_router(routes.dspaces_router, tags=["DataSpaces"], prefix="/dspaces")

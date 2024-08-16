@@ -1,2 +1,2 @@
-def configure_services():
+async def configure_services():
     pass

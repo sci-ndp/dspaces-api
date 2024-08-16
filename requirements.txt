@@ -1,0 +1,6 @@
+dill
+fastapi
+numpy
+pydantic_settings
+python-multipart
+uvicorn

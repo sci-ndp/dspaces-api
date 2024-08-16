@@ -1,1 +1,2 @@
-from .swagger_settings import swagger_settings
+from .swagger import settings as swagger_settings
+from .dspaces import settings as dspaces_settings
