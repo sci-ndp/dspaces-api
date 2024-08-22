@@ -1,8 +1,10 @@
 from typing import Annotated
-from fastapi import APIRouter, HTTPException, Body, File, Form, Path, Query, Response
+from fastapi import APIRouter, HTTPException, Body, File, Form, Path, Query, Request, Response
 
 from api.models.dspaces_model import BoundingBox, DSObject, RequestList
 from api.services.dspaces_services import *
+
+from dspaces import DSModuleError, DSRemoteFaultError, DSConnectionError
 
 router = APIRouter()
 
@@ -40,15 +42,7 @@ def ds_get(
             description="Request namespace which defines the context of the query",
             max_length=48
         )
-    ] = None,
-    timeout: Annotated[
-        int,
-        Query(
-            title="Timeout interval",
-            description="Timeout interval for query",
-            ge=-1
-        )
-    ] = -1
+    ] = None
 ):
     """
     Query the DataSpaces fabric for a data object:
@@ -70,7 +64,6 @@ def ds_get(
             name=obj_name,
             version=obj_version,
             box=box,
-            timeout=timeout
         )
     if data is None:
         raise HTTPException(status_code=404, detail="could not find the object")
@@ -329,3 +322,38 @@ def ds_mpexec(
         )
     )
 
+@router.post("/register/{type}/{name}",
+            status_code=200,
+            summary="Register a new data source"
+            )
+def ds_reg(
+    type: Annotated[
+        str,
+        Path(
+            title="Registration Type",
+            description="The access type for the registration - corresponds to a known DataSpaces module."
+        )
+    ],
+    name: Annotated[
+        str,
+        Path(
+            title="Registration name",
+            description="A name unique to the registration."
+        )
+    ],
+    data: Annotated[
+        dict,
+        Body(
+            title="Registration data",
+            description="type-specific access parameters."
+        )
+    ]
+):
+    try:
+        return(reg_dspaces(type, name, data))
+    except DSModuleError:
+        raise HTTPException(status_code=400, detail="invalid registration type")
+    except DSRemoteFaultError:
+        raise HTTPException(status_code=500, detail="plugin handling fault")
+    except DSConnectionError:
+        raise HTTPException(status_code=500, detail="backend server connection failed")

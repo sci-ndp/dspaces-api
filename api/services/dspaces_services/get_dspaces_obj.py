@@ -9,7 +9,6 @@ def get_dspaces_obj(
                 name:str, 
                 version:int, 
                 box: BoundingBox,
-                timeout: int
 ) -> np.ndarray | None:
     '''
     Get a data object from the DataSpaces server
@@ -24,9 +23,6 @@ def get_dspaces_obj(
         The object version to store
     box
         The space in which to write the data
-    timeout
-        How long to wait for data to be available: -1 means\
-              indefinitely, otherwise fail if not available
 
     Returns
     -------
@@ -35,4 +31,4 @@ def get_dspaces_obj(
     client = get_client()
     lb,ub = get_corners_from_bounds(box)
     name = nspace_name(namespace, name)
-    return(client.Get(name, version, lb, ub, timeout))
+    return(client.Get(name, version, lb, ub, 0))
