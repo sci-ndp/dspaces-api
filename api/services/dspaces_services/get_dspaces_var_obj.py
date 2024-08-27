@@ -18,7 +18,7 @@ def get_dspaces_var_obj(
     """
     client = get_client()
     name = nspace_name(namespace, name)
-    obj_list = client.GetObjVars(name)
+    obj_list = client.GetVarObjs(name)
     objs = []
     for obj in obj_list:
         objs.append(

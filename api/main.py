@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 import api.routes as routes
-from .config import dspaces_settings, swagger_settings
+from .config import swagger_settings
 from .configure_services import configure_services
 
 # Create a FastAPI app instance with custom Swagger UI settings
