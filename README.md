@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This repository contains the implementation of a RESTPLUS API for DataSpaces using FastAPI.
+This repository contains the implementation of a RESTPLUS API for DataSpaces using FastAPI. It communicates with a backend instance of DataSpaces to mediate staging requests.
 
 ## What is DataSpaces?
 
@@ -20,16 +20,12 @@ This repository includes the code necessary to set up and run a RESTPLUS API for
 
 ## Installation
 
-Instructions for setting up the environment and installing dependencies will be provided soon.
-
-## Usage
-
-Guidelines for running the FastAPI application and accessing the API endpoints will be added.
+For detailed instructions on installing, configuring, and accessing the sciDX API, please see the [Installation Guide](docs/installation.md).
 
 ## Contributing
 
-We welcome contributions from the community. Detailed guidelines will be provided in the [CONTRIBUTING.md](CONTRIBUTING.md) file.
+We welcome contributions from the community. Detailed guidelines will be provided in the [CONTRIBUTING.md](docs/contributing.md) file.
 
 ## License
 
-This project is licensed under the "some license". See the [LICENSE](LICENSE) file for more details.
+This project is licensed under the [MIT License](LICENSE).
