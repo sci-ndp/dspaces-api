@@ -9,3 +9,7 @@ file='s3nc_mod.py'
 [modules.gddp]
 namespace='cmip6-planetary'
 file='azure_mod.py'
+
+[modules.url]
+namespaces='url'
+file='url_mod.py'
