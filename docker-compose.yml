@@ -4,7 +4,7 @@ services:
 
   api:
     container_name: dspaces-api
-    image: philipdavis/dspaces-build:v01082024
+    image: philipdavis/dspaces-build:v22082024
     env_file: ./env_variables/.env_api
     volumes:
       - .:/app
@@ -34,6 +34,7 @@ services:
       - "${DSPACES_SERVER_PORT}:${DSPACES_SERVER_PORT}"
     volumes:
       - ./dspaces.toml:/dspaces.toml
+      - ./dspaces_reg.db:/dspaces_reg.db
     networks:
       - ds-backend
 

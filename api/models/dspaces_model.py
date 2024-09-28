@@ -30,3 +30,7 @@ class RequestList(BaseModel):
         if isinstance(value, str):
             return cls(**json.loads(value))
         return value
+    
+class DSRegHandle(BaseModel):
+    namespace: str
+    parameters: dict
