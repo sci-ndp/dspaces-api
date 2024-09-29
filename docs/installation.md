@@ -24,8 +24,8 @@ cd dspaces-api
 1. Copy the example environment files and adjust the configuration as needed:
 
    ```bash
-   cp ./env_variables/.env_dspaces.example ./env_variables/.env_dspaces
-   cp ./env_variables/.env_api.example ./env_variables/.env_api
+   cp ./env_variables/env_dspaces.example ./env_variables/.env_dspaces
+   cp ./env_variables/env_api.example ./env_variables/.env_api
    ```
 
 2. Edit the `.env` files to match your local environment or deployment needs.
