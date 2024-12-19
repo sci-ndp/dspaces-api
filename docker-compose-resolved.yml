@@ -1,0 +1,69 @@
+# Built based on the docker-compose.yml file from the dspaces-api root directory
+# To facilitate k8s manifests converting
+
+name: dspaces-api
+services:
+  api:
+    command:
+      - ./start.sh
+    container_name: dspaces-api
+    depends_on:
+      dspaces:
+        condition: service_healthy
+        required: true
+    environment:
+      API_PORT: "8001"
+      DSPACES_SERVER_PORT: "4000"
+    image: philipdavis/dspaces-build:v22082024
+    networks:
+      ds-backend: null
+    ports:
+      - mode: ingress
+        target: 8001
+        published: "8001"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /Users/yutianqin/dev/sci/dspaces-api
+        target: /app
+        bind:
+          create_host_path: true
+    working_dir: /app
+  dspaces:
+    container_name: dspaces
+    environment:
+      DSPACES_DEBUG: "1"
+      DSPACES_SERVER_CHECKOUT: v2.3.0-beta
+      DSPACES_SERVER_PORT: "4000"
+      OFI_STRING: tcp://eth0:4000
+      REPO_BRANCH: v2.3.0-beta
+    healthcheck:
+      test:
+        - CMD
+        - nc
+        - -z
+        - dspaces
+        - "4000"
+    image: philipdavis/dspaces-server:v01082024
+    networks:
+      ds-backend: null
+    ports:
+      - mode: ingress
+        target: 4000
+        published: "4000"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /Users/yutianqin/dev/sci/dspaces-api/dspaces.toml
+        target: /dspaces.toml
+        bind:
+          create_host_path: true
+      - type: bind
+        source: /Users/yutianqin/dev/sci/dspaces-api/dspaces_reg.db
+        target: /dspaces_reg.db
+        bind:
+          create_host_path: true
+networks:
+  ds-backend:
+    name: ds-backend
+    driver: bridge
