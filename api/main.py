@@ -5,11 +5,16 @@ import api.routes as routes
 from .config import swagger_settings
 from .configure_services import configure_services
 
+import os
+# Determine if running behind an ingress (check environment variable or request headers)
+root_path = "/dspaces" if os.getenv("RUNNING_IN_INGRESS", "false").lower() == "true" else ""
+
 # Create a FastAPI app instance with custom Swagger UI settings
 app = FastAPI(
     title=swagger_settings.swagger_title,
     description=swagger_settings.swagger_description,
     version=swagger_settings.swagger_version,
+    root_path=root_path,
 )
 
 # Add CORS middleware to allow cross-origin requests from any origin
@@ -28,4 +33,5 @@ async def startup_event():
     await configure_services()
 
 app.include_router(routes.default_router, include_in_schema=False)
-app.include_router(routes.dspaces_router, tags=["DataSpaces"], prefix="/dspaces")
+# app.include_router(routes.dspaces_router, tags=["DataSpaces"], prefix="/dspaces")
+app.include_router(routes.dspaces_router, tags=["DataSpaces"])
