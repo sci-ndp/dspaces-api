@@ -6,7 +6,6 @@ import os
 
 class DSpacesSettings(BaseSettings):
     # dspaces_server_ip:str = socket.getaddrinfo('dspaces', None)[0][-1][0]
-    # dspaces_server_ip:str = "dspaces-server-service.dspaces.svc.cluster.local"
     dspaces_server_port:int = 4000
     dspaces_unsafe_endpoints:bool = False
 
