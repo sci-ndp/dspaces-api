@@ -6,15 +6,16 @@ from .config import swagger_settings
 from .configure_services import configure_services
 
 import os
-# Determine if running behind an ingress (check environment variable or request headers)
-root_path = "/dspaces" if os.getenv("RUNNING_IN_INGRESS", "false").lower() == "true" else ""
+
+
+root_path = os.getenv("POD_NAMESPACE", "dspaces")
 
 # Create a FastAPI app instance with custom Swagger UI settings
 app = FastAPI(
     title=swagger_settings.swagger_title,
     description=swagger_settings.swagger_description,
     version=swagger_settings.swagger_version,
-    root_path=root_path,
+    root_path=f'/{root_path}',
 )
 
 # Add CORS middleware to allow cross-origin requests from any origin
