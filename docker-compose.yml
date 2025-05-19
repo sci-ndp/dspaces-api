@@ -1,10 +1,10 @@
-version: '3.8'
-
-services: 
+services:
 
   api:
     container_name: dspaces-api
-    image: philipdavis/dspaces-build:v22082024
+    build:
+      context: .
+      dockerfile: Dockerfile
     env_file: ./env_variables/.env_api
     volumes:
       - .:/app
