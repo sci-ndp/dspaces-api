@@ -466,40 +466,34 @@ def ds_reg(
 def joel():
     import pandas as pd
     import numpy as np
+    import logging
     from api.models.dspaces_model import BoundingBox, Interval
     from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
     from api.services.dspaces_services.get_dspaces_var_obj import get_dspaces_var_obj
     from api.helpers.dspaces_client import get_client
 
-    # Create a sample pandas DataFrame
-    data = {
-        "Name": ["Bo", "Philip", "Saleem", "Jess"],
-        "Age": [28, 34, 29, 42],
-        "City": ["New York", "Boston", "Chicago", "Denver"],
-    }
-    df = pd.DataFrame(data)
+    # Set up logging
+    logger = logging.getLogger(__name__)
 
-    # Process each column and store in DataSpaces
-    namespace = "joel_dataframe"
-    version = 0
-    
-    stored_columns = {}
+    # Utility function to store DataFrame column in DataSpaces
+    def store_dataframe_column(df, col_name, namespace, version):
+        """Store a single DataFrame column in DataSpaces"""
+        logger.info(f"Storing column {col_name} in DataSpaces")
 
-    for col in df.columns:
-        # Convert column to appropriate numpy array
-        if df[col].dtype == "object":  # String columns
+        # Handle different data types appropriately
+        if df[col_name].dtype == "object":  # String columns
             # Convert strings to bytes for storage
-            col_data = np.array([str(x).encode("utf-8") for x in df[col]])
-            # Use the dtype number, not the type class
-            element_type = 1  # np.uint8.num would be 1
-            # Each string could be different length, so we flatten the array
+            col_data = np.array([str(x).encode("utf-8") for x in df[col_name]])
+            element_type = 1  # np.uint8.num (byte data)
+            element_size = 1  # Size of uint8
+
+            # Each string could have different length, flatten the array
             flat_data = np.concatenate(
                 [np.frombuffer(x, dtype=np.uint8) for x in col_data]
             )
-            element_size = 1  # Size of uint8
         else:
             # For numeric columns
-            col_data = df[col].to_numpy()
+            col_data = df[col_name].to_numpy()
             element_type = col_data.dtype.num
             element_size = col_data.itemsize
             flat_data = col_data
@@ -510,7 +504,7 @@ def joel():
         # Store the column data in DataSpaces
         put_dspaces_obj(
             namespace=namespace,
-            name=col,
+            name=col_name,
             version=version,
             box=box,
             element_size=element_size,
@@ -518,25 +512,27 @@ def joel():
             data=flat_data.tobytes(),
         )
         
-        # Save the original data for verification
-        stored_columns[col] = {
+        # Return metadata for verification
+        return {
             "data": flat_data.tobytes(),
             "element_type": element_type,
             "element_size": element_size,
             "box": box
         }
 
-    # Fetch the data back from DataSpaces and verify it works
-    client = get_client()
-    verification_results = {}
-    
-    for col in df.columns:
+    # Utility function to verify DataSpaces data against original
+    def verify_dataframe_column(col_name, namespace, original_info):
+        """Verify DataSpaces column data against original"""
+        logger.info(f"Verifying column {col_name} from DataSpaces")
+
         # Get objects for this column
-        objects = get_dspaces_var_obj(namespace=namespace, name=col)
-        
-        # Assert that we found at least one object
-        assert len(objects) > 0, f"No objects found for column {col}"
-        
+        objects = get_dspaces_var_obj(namespace=namespace, name=col_name)
+
+        # Check that objects exist
+        if not objects:
+            logger.error(f"No objects found for column {col_name}")
+            assert len(objects) > 0, f"No objects found for column {col_name}"
+
         # Get the latest version
         latest_obj = max(objects, key=lambda x: x.version)
         
@@ -544,34 +540,84 @@ def joel():
         lb = tuple([b.start for b in latest_obj.bounds])
         ub = tuple([(b.start + b.span) - 1 for b in latest_obj.bounds])
         
-        # Fetch the actual data with timeout parameter (measured in milliseconds)
+        # Fetch the actual data
+        client = get_client()
         timeout = -1  # -1 means wait indefinitely
         fetched_data = client.Get(latest_obj.name, latest_obj.version, lb, ub, timeout)
         
-        # Assert that we got data back
-        assert fetched_data is not None, f"Failed to fetch data for column {col}"
-        
-        # Get the original data info for proper comparison
-        original_info = stored_columns[col]
+        # Check that data was retrieved
+        if fetched_data is None:
+            logger.error(f"Failed to fetch data for column {col_name}")
+            assert fetched_data is not None, f"Failed to fetch data for column {col_name}"
+
+        # Get the original data info for comparison
         original_data = original_info["data"]
         element_size = original_info["element_size"]
         element_type = original_info["element_type"]
 
-        # Convert fetched data to numpy array with the right type for proper comparison
-        if element_type == 1:  # String/byte data (uint8)
-            # For string data, comparing byte length is appropriate
-            assert len(fetched_data) == len(original_data), f"Data length mismatch for column {col}"
-        else:
-            # For numeric data, need to account for element size
-            # Convert fetched data to a numpy array with the correct dtype
+        # Verify data integrity based on data type
+        if element_type == 1:  # String/byte data
+            if len(fetched_data) != len(original_data):
+                logger.error(f"Data length mismatch for column {col_name}")
+                assert len(fetched_data) == len(original_data), f"Data length mismatch for column {col_name}"
+        else:  # Numeric data
+            # Convert to numpy arrays for comparison
             dtype = np.dtype(np.sctypeDict.get(element_type))
             fetched_array = np.frombuffer(fetched_data, dtype=dtype)
             original_array = np.frombuffer(original_data, dtype=dtype)
 
-            assert len(fetched_array) == len(original_array), f"Data length mismatch for column {col}: fetched={len(fetched_array)}, original={len(original_array)}"
-            np.testing.assert_array_equal(fetched_array, original_array, f"Data content mismatch for column {col}")
+            if len(fetched_array) != len(original_array):
+                logger.error(f"Data length mismatch for column {col_name}: fetched={len(fetched_array)}, original={len(original_array)}")
+                assert len(fetched_array) == len(original_array), f"Data length mismatch for column {col_name}"
 
-        verification_results[col] = "Success"
+            # Check array content equality
+            try:
+                np.testing.assert_array_equal(fetched_array, original_array)
+            except AssertionError as e:
+                logger.error(f"Data content mismatch for column {col_name}: {e}")
+                raise
+
+        logger.info(f"Verification successful for column {col_name}")
+        return "Success"
+
+    # Create a sample pandas DataFrame
+    logger.info("Creating sample DataFrame")
+    data = {
+        "Name": ["Bo", "Philip", "Saleem", "Jess"],
+        "Age": [28, 34, 29, 42],
+        "City": ["New York", "Boston", "Chicago", "Denver"],
+    }
+    df = pd.DataFrame(data)
+
+    # Handle edge case: empty DataFrame
+    if df.empty:
+        logger.warning("Empty DataFrame provided, returning early")
+        return {"error": "Empty DataFrame cannot be processed"}
+
+    # Process each column and store in DataSpaces
+    namespace = "joel_dataframe"
+    version = 0
+    stored_columns = {}
+
+    # Store each column in DataSpaces
+    for col in df.columns:
+        try:
+            stored_columns[col] = store_dataframe_column(df, col, namespace, version)
+            logger.info(f"Successfully stored column {col}")
+        except Exception as e:
+            logger.error(f"Failed to store column {col}: {str(e)}")
+            return {"error": f"Failed to store column {col}: {str(e)}"}
+
+    # Verify all stored columns
+    verification_results = {}
+    for col in df.columns:
+        try:
+            verification_results[col] = verify_dataframe_column(col, namespace, stored_columns[col])
+        except Exception as e:
+            logger.error(f"Verification failed for column {col}: {str(e)}")
+            verification_results[col] = f"Failed: {str(e)}"
+
+    logger.info("DataFrame processing and verification complete")
 
     # Return the DataFrame as JSON along with verification results
     return {
