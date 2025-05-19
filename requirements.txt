@@ -1,6 +1,7 @@
 dill
 fastapi
 numpy
+pandas
 pydantic_settings
 python-multipart
 uvicorn

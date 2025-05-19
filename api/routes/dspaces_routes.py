@@ -461,3 +461,66 @@ def ds_reg(
         raise HTTPException(status_code=500, detail="plugin handling fault")
     except DSConnectionError:
         raise HTTPException(status_code=500, detail="backend server connection failed")
+
+@router.get("/joel", summary="Joel route")
+def joel():
+    """
+    A route that creates and returns a pandas DataFrame.
+    Each column of the DataFrame is also stored in DataSpaces.
+
+    Returns
+    -------
+    A JSON representation of a pandas DataFrame
+    """
+    import pandas as pd
+    import numpy as np
+    from api.models.dspaces_model import BoundingBox, Interval
+    from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
+
+    # Create a sample pandas DataFrame
+    data = {
+        "Name": ["Bo", "Philip", "Saleem", "Jess"],
+        "Age": [28, 34, 29, 42],
+        "City": ["New York", "Boston", "Chicago", "Denver"],
+    }
+    df = pd.DataFrame(data)
+
+    # Process each column and store in DataSpaces
+    namespace = "joel_dataframe"
+    version = 0
+
+    for col in df.columns:
+        # Convert column to appropriate numpy array
+        if df[col].dtype == "object":  # String columns
+            # Convert strings to bytes for storage
+            col_data = np.array([str(x).encode("utf-8") for x in df[col]])
+            # Use the dtype number, not the type class
+            element_type = 1  # np.uint8.num would be 1
+            # Each string could be different length, so we flatten the array
+            flat_data = np.concatenate(
+                [np.frombuffer(x, dtype=np.uint8) for x in col_data]
+            )
+            element_size = 1  # Size of uint8
+        else:
+            # For numeric columns
+            col_data = df[col].to_numpy()
+            element_type = col_data.dtype.num
+            element_size = col_data.itemsize
+            flat_data = col_data
+
+        # Create bounding box for this column
+        box = BoundingBox(bounds=[Interval(start=0, span=len(flat_data))])
+
+        # Store the column data in DataSpaces
+        put_dspaces_obj(
+            namespace=namespace,
+            name=col,
+            version=version,
+            box=box,
+            element_size=element_size,
+            element_type=element_type,
+            data=flat_data.tobytes(),
+        )
+
+    # Return the DataFrame as JSON
+    return df.to_dict(orient="records")
