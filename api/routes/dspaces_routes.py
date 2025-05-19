@@ -464,18 +464,12 @@ def ds_reg(
 
 @router.get("/joel", summary="Joel route")
 def joel():
-    """
-    A route that creates and returns a pandas DataFrame.
-    Each column of the DataFrame is also stored in DataSpaces.
-
-    Returns
-    -------
-    A JSON representation of a pandas DataFrame
-    """
     import pandas as pd
     import numpy as np
     from api.models.dspaces_model import BoundingBox, Interval
     from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
+    from api.services.dspaces_services.get_dspaces_var_obj import get_dspaces_var_obj
+    from api.helpers.dspaces_client import get_client
 
     # Create a sample pandas DataFrame
     data = {
@@ -488,6 +482,8 @@ def joel():
     # Process each column and store in DataSpaces
     namespace = "joel_dataframe"
     version = 0
+    
+    stored_columns = {}
 
     for col in df.columns:
         # Convert column to appropriate numpy array
@@ -521,6 +517,64 @@ def joel():
             element_type=element_type,
             data=flat_data.tobytes(),
         )
+        
+        # Save the original data for verification
+        stored_columns[col] = {
+            "data": flat_data.tobytes(),
+            "element_type": element_type,
+            "element_size": element_size,
+            "box": box
+        }
 
-    # Return the DataFrame as JSON
-    return df.to_dict(orient="records")
+    # Fetch the data back from DataSpaces and verify it works
+    client = get_client()
+    verification_results = {}
+    
+    for col in df.columns:
+        # Get objects for this column
+        objects = get_dspaces_var_obj(namespace=namespace, name=col)
+        
+        # Assert that we found at least one object
+        assert len(objects) > 0, f"No objects found for column {col}"
+        
+        # Get the latest version
+        latest_obj = max(objects, key=lambda x: x.version)
+        
+        # Get the bounds for retrieval
+        lb = tuple([b.start for b in latest_obj.bounds])
+        ub = tuple([(b.start + b.span) - 1 for b in latest_obj.bounds])
+        
+        # Fetch the actual data with timeout parameter (measured in milliseconds)
+        timeout = -1  # -1 means wait indefinitely
+        fetched_data = client.Get(latest_obj.name, latest_obj.version, lb, ub, timeout)
+        
+        # Assert that we got data back
+        assert fetched_data is not None, f"Failed to fetch data for column {col}"
+        
+        # Get the original data info for proper comparison
+        original_info = stored_columns[col]
+        original_data = original_info["data"]
+        element_size = original_info["element_size"]
+        element_type = original_info["element_type"]
+
+        # Convert fetched data to numpy array with the right type for proper comparison
+        if element_type == 1:  # String/byte data (uint8)
+            # For string data, comparing byte length is appropriate
+            assert len(fetched_data) == len(original_data), f"Data length mismatch for column {col}"
+        else:
+            # For numeric data, need to account for element size
+            # Convert fetched data to a numpy array with the correct dtype
+            dtype = np.dtype(np.sctypeDict.get(element_type))
+            fetched_array = np.frombuffer(fetched_data, dtype=dtype)
+            original_array = np.frombuffer(original_data, dtype=dtype)
+
+            assert len(fetched_array) == len(original_array), f"Data length mismatch for column {col}: fetched={len(fetched_array)}, original={len(original_array)}"
+            np.testing.assert_array_equal(fetched_array, original_array, f"Data content mismatch for column {col}")
+
+        verification_results[col] = "Success"
+
+    # Return the DataFrame as JSON along with verification results
+    return {
+        "data": df.to_dict(orient="records"),
+        "verification": verification_results
+    }
