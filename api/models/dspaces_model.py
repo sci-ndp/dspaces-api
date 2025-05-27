@@ -1,5 +1,7 @@
-from pydantic import BaseModel, Field, model_validator
 import json
+
+from pydantic import BaseModel, Field, model_validator
+
 
 class Interval(BaseModel):
     start: int = Field(title="the lower bound of a range", ge=-1)
@@ -34,3 +36,19 @@ class RequestList(BaseModel):
 class DSRegHandle(BaseModel):
     namespace: str
     parameters: dict
+
+class CSVIngestionRequest(BaseModel):
+    namespace: str = Field(title="Namespace", description="The namespace to store the CSV data under")
+    version: int = Field(default=0, title="Version", description="Version number for the stored objects", ge=0)
+    chunk_size: int = Field(default=10000, title="Chunk Size", description="Number of rows to process at once", gt=0)
+
+class CSVIngestionResponse(BaseModel):
+    file_path: str
+    total_rows: int
+    total_columns: int
+    columns: list[str]
+    namespace: str
+    version: int
+    stored_objects: dict
+    success: bool
+    message: str

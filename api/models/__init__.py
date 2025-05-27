@@ -1,1 +1,8 @@
-from .dspaces_model import Interval, BoundingBox, DSObject, RequestList
+from .dspaces_model import (
+    BoundingBox,
+    CSVIngestionRequest,
+    CSVIngestionResponse,
+    DSObject,
+    Interval,
+    RequestList,
+)
