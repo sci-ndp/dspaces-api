@@ -1,6 +1,7 @@
 import os
 from typing import Annotated, Optional
 
+import pandas as pd  # type: ignore
 from dspaces import DSConnectionError, DSModuleError, DSRemoteFaultError
 from fastapi import APIRouter, Body, File, Form, HTTPException, Path, Query, Response
 
@@ -12,8 +13,23 @@ from api.models.dspaces_model import (
     DSObject,
     DSRegHandle,
     RequestList,
+    SaltLakeAggregateRequest,
+    SaltLakeAggregateResponse,
+    SaltLakeFilterRequest,
+    SaltLakeFilterResponse,
 )
-from api.services.dspaces_services import *
+from api.services.dspaces_services.get_dspaces_obj import get_dspaces_obj
+from api.services.dspaces_services.get_dspaces_var_obj import get_dspaces_var_obj
+from api.services.dspaces_services.get_dspaces_vars import get_dspaces_vars
+from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
+from api.services.dspaces_services.pexec_dspaces_obj import pexec_dspaces_obj
+from api.services.dspaces_services.mpexec_dspaces_obj import mpexec_dspaces_obj
+from api.services.dspaces_services.reg_dspaces import reg_dspaces
+from api.services.dspaces_services.filter_salt_lake_data import (
+    aggregate_salt_lake_data,
+    filter_salt_lake_data,
+    _create_column_mapping,
+)
 from api.services.dspaces_services.ingest_csv_data import (
     ingest_csv_to_dspaces,
     retrieve_csv_from_dspaces,
@@ -220,7 +236,7 @@ def ds_get_vars() -> list[str]:
     **HTTPException** on failure.
     """
     vars = get_dspaces_vars()
-    if vars == None:
+    if vars is None:
         raise HTTPException(status_code=502, detail="query failed.")
     return vars
 
@@ -474,329 +490,7 @@ def ds_reg(
     except DSConnectionError:
         raise HTTPException(status_code=500, detail="backend server connection failed")
 
-@router.get("/joel", summary="Joel route")
-def joel():
-    import logging
 
-    import numpy as np
-    import pandas as pd
-
-    from api.helpers.dspaces_client import get_client
-    from api.models.dspaces_model import BoundingBox, Interval
-    from api.services.dspaces_services.get_dspaces_var_obj import get_dspaces_var_obj
-    from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
-
-    # Set up logging
-    logger = logging.getLogger(__name__)
-
-    # Utility function to store DataFrame column in DataSpaces
-    def store_dataframe_column(df, col_name, namespace, version):
-        """Store a single DataFrame column in DataSpaces"""
-        logger.info(f"Storing column {col_name} in DataSpaces")
-
-        # Handle different data types appropriately
-        if df[col_name].dtype == "object":  # String columns
-            # Convert strings to bytes for storage
-            col_data = np.array([str(x).encode("utf-8") for x in df[col_name]])
-            element_type = 1  # np.uint8.num (byte data)
-            element_size = 1  # Size of uint8
-
-            # Store string lengths to enable reconstruction
-            str_lengths = np.array([len(x) for x in col_data], dtype=np.int32)
-
-            # Store string lengths metadata
-            lengths_box = BoundingBox(bounds=[Interval(start=0, span=len(str_lengths))])
-            put_dspaces_obj(
-                namespace=namespace,
-                name=f"{col_name}_lengths",
-                version=version,
-                box=lengths_box,
-                element_size=str_lengths.itemsize,
-                element_type=str_lengths.dtype.num,
-                data=str_lengths.tobytes(),
-            )
-
-            # Each string could have different length, flatten the array
-            flat_data = np.concatenate(
-                [np.frombuffer(x, dtype=np.uint8) for x in col_data]
-            )
-        else:
-            # For numeric columns
-            col_data = df[col_name].to_numpy()
-            element_type = col_data.dtype.num
-            element_size = col_data.itemsize
-            flat_data = col_data
-
-        # Create bounding box for this column
-        box = BoundingBox(bounds=[Interval(start=0, span=len(flat_data))])
-
-        # Store the column data in DataSpaces
-        put_dspaces_obj(
-            namespace=namespace,
-            name=col_name,
-            version=version,
-            box=box,
-            element_size=element_size,
-            element_type=element_type,
-            data=flat_data.tobytes(),
-        )
-        
-        # Return metadata for verification
-        return {
-            "data": flat_data.tobytes(),
-            "element_type": element_type,
-            "element_size": element_size,
-            "box": box,
-            "is_string": df[col_name].dtype == "object"
-        }
-
-    # Utility function to verify DataSpaces data against original
-    def verify_dataframe_column(col_name, namespace, original_info):
-        """Verify DataSpaces column data against original"""
-        logger.info(f"Verifying column {col_name} from DataSpaces")
-
-        # Get objects for this column
-        objects = get_dspaces_var_obj(namespace=namespace, name=col_name)
-
-        # Check that objects exist
-        if not objects:
-            logger.error(f"No objects found for column {col_name}")
-            assert len(objects) > 0, f"No objects found for column {col_name}"
-
-        # Get the latest version
-        latest_obj = max(objects, key=lambda x: x.version)
-        
-        # Get the bounds for retrieval
-        lb = tuple([b.start for b in latest_obj.bounds])
-        ub = tuple([(b.start + b.span) - 1 for b in latest_obj.bounds])
-        
-        # Fetch the actual data
-        client = get_client()
-        timeout = -1  # -1 means wait indefinitely
-        fetched_data = client.Get(latest_obj.name, latest_obj.version, lb, ub, timeout)
-        
-        # Check that data was retrieved
-        if fetched_data is None:
-            logger.error(f"Failed to fetch data for column {col_name}")
-            assert fetched_data is not None, f"Failed to fetch data for column {col_name}"
-
-        # Get the original data info for comparison
-        original_data = original_info["data"]
-        element_size = original_info["element_size"]
-        element_type = original_info["element_type"]
-
-        # Verify data integrity based on data type
-        if element_type == 1:  # String/byte data
-            if len(fetched_data) != len(original_data):
-                logger.error(f"Data length mismatch for column {col_name}")
-                assert len(fetched_data) == len(original_data), f"Data length mismatch for column {col_name}"
-        else:  # Numeric data
-            # Convert to numpy arrays for comparison
-            dtype = np.dtype(np.sctypeDict.get(element_type))
-            fetched_array = np.frombuffer(fetched_data, dtype=dtype)
-            original_array = np.frombuffer(original_data, dtype=dtype)
-
-            if len(fetched_array) != len(original_array):
-                logger.error(f"Data length mismatch for column {col_name}: fetched={len(fetched_array)}, original={len(original_array)}")
-                assert len(fetched_array) == len(original_array), f"Data length mismatch for column {col_name}"
-
-            # Check array content equality
-            try:
-                np.testing.assert_array_equal(fetched_array, original_array)
-            except AssertionError as e:
-                logger.error(f"Data content mismatch for column {col_name}: {e}")
-                raise
-
-        logger.info(f"Verification successful for column {col_name}")
-        return "Success"
-
-    # Utility function to reconstruct a DataFrame from DataSpaces
-    def reconstruct_dataframe(columns, namespace, version):
-        """Reconstruct a DataFrame from columns stored in DataSpaces"""
-        logger.info(f"Reconstructing DataFrame from {len(columns)} columns")
-
-        df_data = {}
-        client = get_client()
-        timeout = -1  # -1 means wait indefinitely
-
-        for col_name in columns:
-            try:
-                # Get object metadata
-                objects = get_dspaces_var_obj(namespace=namespace, name=col_name)
-
-                if not objects:
-                    logger.error(f"No objects found for column {col_name}")
-                    continue
-
-                logger.info(f"Found {len(objects)} objects for column {col_name}")
-
-                # Get the specified version or the latest if not found
-                col_obj = next((obj for obj in objects if obj.version == version), None)
-                if col_obj is None:
-                    col_obj = max(objects, key=lambda x: x.version)
-
-                # Get bounds for retrieval
-                lb = tuple([b.start for b in col_obj.bounds])
-                ub = tuple([(b.start + b.span) - 1 for b in col_obj.bounds])
-
-                logger.info(f"Retrieving data for column {col_name}, bounds: {lb} to {ub}")
-
-                # Fetch the actual data
-                fetched_data = client.Get(col_obj.name, col_obj.version, lb, ub, timeout)
-                if fetched_data is None:
-                    logger.error(f"Failed to fetch data for column {col_name}")
-                    continue
-
-                logger.info(f"Successfully fetched {len(fetched_data)} bytes for column {col_name}")
-
-                # Check if this is a string column by looking for _lengths metadata
-                length_objects = get_dspaces_var_obj(namespace=namespace, name=f"{col_name}_lengths")
-
-                logger.info(f"Column {col_name}: {'Found' if length_objects else 'Did not find'} _lengths metadata")
-
-                if length_objects:
-                    # It's a string column - need to reconstruct from bytes and lengths
-                    # Get the string lengths object
-                    length_obj = next((obj for obj in length_objects if obj.version == version), None)
-                    if length_obj is None:
-                        length_obj = max(length_objects, key=lambda x: x.version)
-
-                    # Get bounds for retrieval
-                    lb_len = tuple([b.start for b in length_obj.bounds])
-                    ub_len = tuple([(b.start + b.span) - 1 for b in length_obj.bounds])
-
-                    logger.info(f"Retrieving length data for column {col_name}, bounds: {lb_len} to {ub_len}")
-
-                    # Fetch the lengths data
-                    lengths_data = client.Get(length_obj.name, length_obj.version, lb_len, ub_len, timeout)
-                    if lengths_data is None:
-                        logger.error(f"Failed to fetch length data for string column {col_name}")
-                        continue
-
-                    # Convert to numpy array
-                    lengths = np.frombuffer(lengths_data, dtype=np.int32)
-
-                    logger.info(f"Got {len(lengths)} string lengths for column {col_name}: {lengths}")
-
-                    # Reconstruct strings from flat byte array
-                    strings = []
-                    pos = 0
-                    for i, length in enumerate(lengths):
-                        if pos + length > len(fetched_data):
-                            logger.error(f"Out of bounds error at position {pos}, length {length}, data size {len(fetched_data)}")
-                            break
-
-                        string_bytes = fetched_data[pos:pos+length]
-                        strings.append(string_bytes.decode('utf-8'))
-                        logger.debug(f"Reconstructed string {i}: '{strings[-1]}' (length {length})")
-                        pos += length
-
-                    logger.info(f"Reconstructed {len(strings)} strings for column {col_name}")
-                    df_data[col_name] = strings
-                else:
-                    # It's a numeric column
-                    # First, check if we have information about the element type
-                    # In a real scenario, it's better to store dtype information separately
-                    if col_name == "Age":
-                        # For this example, we know Age is an integer
-                        array = np.frombuffer(fetched_data, dtype=np.int64)
-                        df_data[col_name] = array.tolist()  # Convert to list for DataFrame construction
-                        logger.info(f"Processed numeric column {col_name} as int64: {array.tolist()}")
-                    else:
-                        # Try common numeric types in order of likelihood
-                        for dtype_try in [np.int32, np.int64, np.float32, np.float64]:
-                            try:
-                                array = np.frombuffer(fetched_data, dtype=dtype_try)
-                                df_data[col_name] = array.tolist()  # Convert to list for DataFrame construction
-                                logger.info(f"Processed numeric column {col_name} as {dtype_try}: {array.tolist()}")
-                                break
-                            except:
-                                continue
-
-            except Exception as e:
-                logger.error(f"Error reconstructing column {col_name}: {str(e)}")
-                continue
-
-        # Create pandas DataFrame from reconstructed data
-        logger.info(f"Reconstructed data keys: {list(df_data.keys())}")
-        logger.info(f"Reconstructed data: {df_data}")
-        return pd.DataFrame(df_data)
-
-    # Create a sample pandas DataFrame
-    logger.info("Creating sample DataFrame")
-    data = {
-        "Name": ["Bo", "Philip", "Saleem", "Jess"],
-        "Age": [28, 34, 29, 42],
-        "City": ["New York", "Boston", "Chicago", "Denver"],
-    }
-    df = pd.DataFrame(data)
-
-    # Handle edge case: empty DataFrame
-    if df.empty:
-        logger.warning("Empty DataFrame provided, returning early")
-        return {"error": "Empty DataFrame cannot be processed"}
-
-    # Process each column and store in DataSpaces
-    namespace = "joel_dataframe"
-    version = 0
-    stored_columns = {}
-
-    # Store each column in DataSpaces
-    for col in df.columns:
-        try:
-            stored_columns[col] = store_dataframe_column(df, col, namespace, version)
-            logger.info(f"Successfully stored column {col}")
-        except Exception as e:
-            logger.error(f"Failed to store column {col}: {str(e)}")
-            return {"error": f"Failed to store column {col}: {str(e)}"}
-
-    # Verify all stored columns
-    verification_results = {}
-    for col in df.columns:
-        try:
-            verification_results[col] = verify_dataframe_column(col, namespace, stored_columns[col])
-        except Exception as e:
-            logger.error(f"Verification failed for column {col}: {str(e)}")
-            verification_results[col] = f"Failed: {str(e)}"
-
-    logger.info("DataFrame processing and verification complete")
-
-    # Demonstrate DataFrame reconstruction
-    try:
-        # Use the stored_columns dictionary keys instead of querying DataSpaces
-        df_columns = list(stored_columns.keys())
-        logger.info(f"Columns to reconstruct from stored_columns: {df_columns}")
-
-        # Reconstruct the DataFrame
-        reconstructed_df = reconstruct_dataframe(df_columns, namespace, version)
-        logger.info("DataFrame reconstruction successful")
-
-        # Compare with original DataFrame
-        logger.info(f"Original DataFrame:\n{df}")
-        logger.info(f"Reconstructed DataFrame:\n{reconstructed_df}")
-
-        # Check if the DataFrames are equal
-        is_equal = df.equals(reconstructed_df)
-        logger.info(f"DataFrames are equal: {is_equal}")
-
-        # Include reconstructed DataFrame in the response
-        reconstruction_result = {
-            "success": is_equal,
-            "reconstructed_data": reconstructed_df.to_dict(orient="records")
-        }
-    except Exception as e:
-        logger.error(f"DataFrame reconstruction failed: {str(e)}")
-        reconstruction_result = {
-            "success": False,
-            "error": str(e)
-        }
-
-    # Return the DataFrame as JSON along with verification results
-    return {
-        "data": df.to_dict(orient="records"),
-        "verification": verification_results,
-        "reconstruction": reconstruction_result
-    }
 
 @router.post("/ingest/salt-lake-county",
              status_code=200,
@@ -1088,86 +782,913 @@ def get_salt_lake_county_sample(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read CSV file: {str(e)}")
 
-@router.post("/dspaces/ingest/salt-lake-county/performance-test",
-             summary="Performance test the optimized Salt Lake County CSV ingestion",
-             response_model=dict
+
+
+@router.get("/retrieve/salt-lake-county/{namespace}/filter",
+            status_code=200,
+            summary="Filter Salt Lake County data with advanced criteria",
+            response_model=SaltLakeFilterResponse
 )
-def performance_test_salt_lake_county_ingestion(
-    request: CSVIngestionRequest,
-    chunk_size: Annotated[
+def filter_salt_lake_county_data(
+    namespace: Annotated[
+        str,
+        Path(
+            title="Namespace",
+            description="The namespace where the Salt Lake County data is stored",
+            max_length=48
+        )
+    ],
+    version: Annotated[
         int,
         Query(
-            title="Chunk size",
-            description="Number of rows to process per chunk for performance testing",
-            ge=1000,
-            le=50000
+            title="Version",
+            description="Version number of the stored data to retrieve",
+            ge=0
         )
-    ] = 10000
-):
+    ] = 0,
+    # Date/Time filters
+    date_from: Annotated[
+        Optional[str],
+        Query(
+            title="Date From",
+            description="Start date filter (YYYY-MM-DD format)"
+        )
+    ] = None,
+    date_to: Annotated[
+        Optional[str],
+        Query(
+            title="Date To", 
+            description="End date filter (YYYY-MM-DD format)"
+        )
+    ] = None,
+    time_from: Annotated[
+        Optional[str],
+        Query(
+            title="Time From",
+            description="Start time filter (HH:MM format)"
+        )
+    ] = None,
+    time_to: Annotated[
+        Optional[str],
+        Query(
+            title="Time To",
+            description="End time filter (HH:MM format)"
+        )
+    ] = None,
+    # Numeric filters
+    measurement_min: Annotated[
+        Optional[float],
+        Query(
+            title="Measurement Min",
+            description="Minimum sample measurement value"
+        )
+    ] = None,
+    measurement_max: Annotated[
+        Optional[float],
+        Query(
+            title="Measurement Max",
+            description="Maximum sample measurement value"
+        )
+    ] = None,
+    # Geographic filters
+    lat_min: Annotated[
+        Optional[float],
+        Query(
+            title="Latitude Min",
+            description="Minimum latitude",
+            ge=-90,
+            le=90
+        )
+    ] = None,
+    lat_max: Annotated[
+        Optional[float],
+        Query(
+            title="Latitude Max",
+            description="Maximum latitude",
+            ge=-90,
+            le=90
+        )
+    ] = None,
+    lng_min: Annotated[
+        Optional[float],
+        Query(
+            title="Longitude Min",
+            description="Minimum longitude",
+            ge=-180,
+            le=180
+        )
+    ] = None,
+    lng_max: Annotated[
+        Optional[float],
+        Query(
+            title="Longitude Max",
+            description="Maximum longitude",
+            ge=-180,
+            le=180
+        )
+    ] = None,
+    # Categorical filters
+    parameter_names: Annotated[
+        Optional[str],
+        Query(
+            title="Parameter Names",
+            description="Comma-separated list of parameter names (e.g., 'Nitrogen dioxide (NO2),Ozone')"
+        )
+    ] = None,
+    state_codes: Annotated[
+        Optional[str],
+        Query(
+            title="State Codes",
+            description="Comma-separated list of state codes (e.g., '49,06')"
+        )
+    ] = None,
+    county_codes: Annotated[
+        Optional[str],
+        Query(
+            title="County Codes",
+            description="Comma-separated list of county codes (e.g., '035,037')"
+        )
+    ] = None,
+    site_nums: Annotated[
+        Optional[str],
+        Query(
+            title="Site Numbers",
+            description="Comma-separated list of site numbers"
+        )
+    ] = None,
+    parameter_codes: Annotated[
+        Optional[str],
+        Query(
+            title="Parameter Codes",
+            description="Comma-separated list of parameter codes"
+        )
+    ] = None,
+    # Result controls
+    limit: Annotated[
+        Optional[int],
+        Query(
+            title="Limit",
+            description="Maximum number of rows to return",
+            ge=1
+        )
+    ] = None,
+    columns: Annotated[
+        Optional[str],
+        Query(
+            title="Columns",
+            description="Comma-separated list of column names to return"
+        )
+    ] = None
+) -> SaltLakeFilterResponse:
     """
-    Performance test endpoint for the optimized Salt Lake County CSV ingestion.
-    This endpoint demonstrates the chunked processing improvements and provides timing metrics.
+    Filter Salt Lake County data using advanced criteria.
+    
+    This endpoint allows filtering the dataset by:
+    - **Date/Time ranges**: Filter by specific date and time ranges
+    - **Measurement values**: Filter by min/max sample measurement values
+    - **Geographic bounds**: Filter by latitude/longitude bounding box
+    - **Categorical values**: Filter by parameter names, codes, locations
+    - **Result controls**: Limit rows and select specific columns
+    
+    Examples:
+    - High pollution readings: `measurement_min=50`
+    - Winter months: `date_from=2016-12-01&date_to=2016-02-29`
+    - Peak hours: `time_from=07:00&time_to=09:00`
+    - Downtown area: `lat_min=40.7&lat_max=40.8&lng_min=-111.9&lng_max=-111.8`
+    - NO2 only: `parameter_names=Nitrogen dioxide (NO2)`
+    
+    Returns
+    -------
+    Filtered data with metadata including:
+    - **data**: Array of filtered records
+    - **metadata**: Information about filtering results
+    - **filter_summary**: Summary of applied filters
+    
+    Raises
+    ------
+    **HTTPException** if the data is not found or filtering fails
     """
-    import time
     
     try:
-        csv_file_path = "/app/data/salt_lake_county_utah_2016.csv"
+        # Parse comma-separated lists
+        parsed_parameter_names = None
+        if parameter_names:
+            parsed_parameter_names = [name.strip() for name in parameter_names.split(",")]
         
-        # Check if file exists
-        if not os.path.exists(csv_file_path):
-            raise HTTPException(status_code=404, detail="Salt Lake County CSV file not found")
+        parsed_state_codes = None
+        if state_codes:
+            parsed_state_codes = [code.strip() for code in state_codes.split(",")]
+            
+        parsed_county_codes = None
+        if county_codes:
+            parsed_county_codes = [code.strip() for code in county_codes.split(",")]
+            
+        parsed_site_nums = None
+        if site_nums:
+            parsed_site_nums = [num.strip() for num in site_nums.split(",")]
+            
+        parsed_parameter_codes = None
+        if parameter_codes:
+            parsed_parameter_codes = [code.strip() for code in parameter_codes.split(",")]
+            
+        parsed_columns = None
+        if columns:
+            parsed_columns = [col.strip() for col in columns.split(",")]
         
-        # Get file info for metrics
-        file_size = os.path.getsize(csv_file_path)
-        file_size_mb = file_size / 1024 / 1024
+        # Parse dates
+        from datetime import datetime
+        parsed_date_from = None
+        parsed_date_to = None
         
-        # Start timing
-        start_time = time.time()
+        if date_from:
+            try:
+                parsed_date_from = datetime.strptime(date_from, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid date format for date_from: {date_from}. Use YYYY-MM-DD.")
+                
+        if date_to:
+            try:
+                parsed_date_to = datetime.strptime(date_to, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(status_code=400, detail=f"Invalid date format for date_to: {date_to}. Use YYYY-MM-DD.")
         
-        # Run the optimized ingestion
-        result = ingest_csv_to_dspaces(
-            csv_file_path=csv_file_path,
-            namespace=request.namespace,
-            version=request.version,
-            chunk_size=chunk_size
+        # Create filter request
+        filter_request = SaltLakeFilterRequest(
+            date_from=parsed_date_from,
+            date_to=parsed_date_to,
+            time_from=time_from,
+            time_to=time_to,
+            measurement_min=measurement_min,
+            measurement_max=measurement_max,
+            lat_min=lat_min,
+            lat_max=lat_max,
+            lng_min=lng_min,
+            lng_max=lng_max,
+            parameter_names=parsed_parameter_names,
+            state_codes=parsed_state_codes,
+            county_codes=parsed_county_codes,
+            site_nums=parsed_site_nums,
+            parameter_codes=parsed_parameter_codes,
+            limit=limit,
+            columns=parsed_columns
         )
         
-        # Calculate timing
-        end_time = time.time()
-        total_time = end_time - start_time
+        # Apply filters
+        result = filter_salt_lake_data(namespace, filter_request, version)
         
-        # Calculate performance metrics
-        rows_per_second = result["total_rows"] / total_time if total_time > 0 else 0
-        mb_per_second = file_size_mb / total_time if total_time > 0 else 0
+        return SaltLakeFilterResponse(
+            data=result["data"],
+            metadata=result["metadata"],
+            filter_summary=result["filter_summary"]
+        )
         
-        # Enhanced response with performance metrics
-        performance_response = {
-            "ingestion_summary": result,
-            "performance_metrics": {
-                "file_size_mb": round(file_size_mb, 2),
-                "chunk_size_used": chunk_size,
-                "total_processing_time_seconds": round(total_time, 2),
-                "rows_per_second": round(rows_per_second, 2),
-                "mb_per_second": round(mb_per_second, 2),
-                "total_rows_processed": result["total_rows"],
-                "total_columns_stored": result["total_columns"],
-                "successful_columns": len([v for v in result["stored_objects"].values() if "error" not in v])
-            },
-            "optimization_features": [
-                "Chunked CSV reading to reduce memory usage",
-                "Efficient string encoding with flat byte arrays",
-                "Progress logging every 10 chunks",
-                "Separate storage for string lengths metadata",
-                "Optimized numpy array concatenation"
-            ],
-            "recommendations": {
-                "optimal_chunk_size": "10,000-20,000 rows for this dataset size",
-                "memory_usage": "Significantly reduced compared to loading entire CSV",
-                "scalability": "Can handle files much larger than available RAM"
-            }
-        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Filtering failed: {str(e)}")
+
+@router.post("/retrieve/salt-lake-county/{namespace}/filter",
+             status_code=200,
+             summary="Filter Salt Lake County data with JSON criteria",
+             response_model=SaltLakeFilterResponse
+)
+def filter_salt_lake_county_data_json(
+    namespace: Annotated[
+        str,
+        Path(
+            title="Namespace",
+            description="The namespace where the Salt Lake County data is stored",
+            max_length=48
+        )
+    ],
+    filter_request: Annotated[
+        SaltLakeFilterRequest,
+        Body(
+            title="Filter criteria",
+            description="JSON object containing filtering criteria"
+        )
+    ],
+    version: Annotated[
+        int,
+        Query(
+            title="Version",
+            description="Version number of the stored data to retrieve",
+            ge=0
+        )
+    ] = 0
+) -> SaltLakeFilterResponse:
+    """
+    Filter Salt Lake County data using JSON criteria.
+    
+    This endpoint accepts a JSON body with filtering criteria, allowing for more
+    complex filter combinations than the query parameter version.
+    
+    Request Body Example:
+    ```json
+    {
+        "date_from": "2016-01-01",
+        "date_to": "2016-01-31", 
+        "measurement_min": 25.0,
+        "parameter_names": ["Nitrogen dioxide (NO2)", "Ozone"],
+        "lat_min": 40.7,
+        "lat_max": 40.8,
+        "limit": 1000,
+        "columns": ["Date Local", "Parameter Name", "Sample Measurement", "Latitude", "Longitude"]
+    }
+    ```
+    
+    Returns
+    -------
+    Filtered data with metadata including:
+    - **data**: Array of filtered records
+    - **metadata**: Information about filtering results  
+    - **filter_summary**: Summary of applied filters
+    
+    Raises
+    ------
+    **HTTPException** if the data is not found or filtering fails
+    """
+    
+    try:
+        # Apply filters
+        result = filter_salt_lake_data(namespace, filter_request, version)
         
-        return performance_response
+        return SaltLakeFilterResponse(
+            data=result["data"],
+            metadata=result["metadata"],
+            filter_summary=result["filter_summary"]
+        )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Performance test failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Filtering failed: {str(e)}")
+
+@router.post("/retrieve/salt-lake-county/{namespace}/aggregate",
+             status_code=200,
+             summary="Get aggregated Salt Lake County data",
+             response_model=SaltLakeAggregateResponse
+)
+def aggregate_salt_lake_county_data(
+    namespace: Annotated[
+        str,
+        Path(
+            title="Namespace",
+            description="The namespace where the Salt Lake County data is stored",
+            max_length=48
+        )
+    ],
+    aggregate_request: Annotated[
+        SaltLakeAggregateRequest,
+        Body(
+            title="Aggregation criteria",
+            description="JSON object containing aggregation criteria"
+        )
+    ],
+    version: Annotated[
+        int,
+        Query(
+            title="Version",
+            description="Version number of the stored data to retrieve",
+            ge=0
+        )
+    ] = 0
+) -> SaltLakeAggregateResponse:
+    """
+    Get aggregated Salt Lake County data.
+    
+    This endpoint performs aggregations on the dataset, allowing you to get
+    statistics grouped by specific fields.
+    
+    Request Body Example:
+    ```json
+    {
+        "date_from": "2016-01-01",
+        "date_to": "2016-12-31",
+        "parameter_names": ["Nitrogen dioxide (NO2)"],
+        "group_by": ["Parameter Name", "Date Local"],
+        "aggregations": ["mean", "min", "max", "count"]
+    }
+    ```
+    
+    Available aggregations:
+    - **mean**: Average sample measurement
+    - **min**: Minimum sample measurement
+    - **max**: Maximum sample measurement
+    - **count**: Number of measurements
+    - **std**: Standard deviation
+    - **median**: Median value
+    
+    Returns
+    -------
+    Aggregated data including:
+    - **data**: Array of aggregated records
+    - **metadata**: Information about the aggregation
+    - **group_by**: Fields used for grouping
+    - **aggregations**: Functions applied
+    
+    Raises
+    ------
+    **HTTPException** if the data is not found or aggregation fails
+    """
+    
+    try:
+        # Apply aggregation
+        result = aggregate_salt_lake_data(namespace, aggregate_request, version)
+        
+        return SaltLakeAggregateResponse(
+            data=result["data"],
+            metadata=result["metadata"],
+            group_by=result["group_by"],
+            aggregations=result["aggregations"]
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Aggregation failed: {str(e)}")
+
+@router.get("/retrieve/salt-lake-county/{namespace}/available-filters",
+            status_code=200,
+            summary="Get available filter values for Salt Lake County data"
+)
+def get_available_filter_values(
+    namespace: Annotated[
+        str,
+        Path(
+            title="Namespace",
+            description="The namespace where the Salt Lake County data is stored",
+            max_length=48
+        )
+    ],
+    version: Annotated[
+        int,
+        Query(
+            title="Version",
+            description="Version number of the stored data to retrieve",
+            ge=0
+        )
+    ] = 0
+) -> dict:
+    """
+    Get available values for categorical filters.
+    
+    This endpoint returns unique values for categorical fields that can be used
+    in filtering, helping users understand what filter values are available.
+    
+    Returns
+    -------
+    A dictionary containing unique values for:
+    - **parameter_names**: Available parameter names
+    - **state_codes**: Available state codes
+    - **county_codes**: Available county codes
+    - **site_nums**: Available site numbers
+    - **parameter_codes**: Available parameter codes
+    - **date_range**: Min and max dates in the dataset
+    - **measurement_range**: Min and max sample measurements
+    - **geographic_bounds**: Min/max latitude and longitude
+    
+    Raises
+    ------
+    **HTTPException** if the data is not found
+    """
+    
+    try:
+        # Retrieve a small sample to get available values
+        df = retrieve_csv_from_dspaces(namespace=namespace, version=version)
+        
+        if df.empty:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No data found in namespace '{namespace}' with version {version}"
+            )
+        
+        # Create column mapping for consistent field access
+        column_mapping = _create_column_mapping()
+        
+        # Helper function to get column data safely
+        def get_column_data(field_name, original_name=None):
+            """Get column data using either cleaned or original column name"""
+            if original_name and original_name in df.columns:
+                return df[original_name]
+            elif field_name in df.columns:
+                return df[field_name]
+            elif field_name in column_mapping and column_mapping[field_name] in df.columns:
+                return df[column_mapping[field_name]]
+            return None
+        
+        # Get unique values for categorical fields using consistent column access
+        result = {}
+        
+        # Parameter names
+        param_data = get_column_data("parameter_name", "Parameter Name")
+        if param_data is not None:
+            result["parameter_names"] = sorted(param_data.dropna().unique().tolist())
+        else:
+            result["parameter_names"] = []
+        
+        # State codes
+        state_data = get_column_data("state_code", "State Code")
+        if state_data is not None:
+            result["state_codes"] = sorted(state_data.dropna().unique().tolist())
+        else:
+            result["state_codes"] = []
+        
+        # County codes
+        county_data = get_column_data("county_code", "County Code")
+        if county_data is not None:
+            result["county_codes"] = sorted(county_data.dropna().unique().tolist())
+        else:
+            result["county_codes"] = []
+        
+        # Site numbers
+        site_data = get_column_data("site_num", "Site Num")
+        if site_data is not None:
+            result["site_nums"] = sorted(site_data.dropna().unique().tolist())
+        else:
+            result["site_nums"] = []
+        
+        # Parameter codes
+        param_code_data = get_column_data("parameter_code", "Parameter Code")
+        if param_code_data is not None:
+            result["parameter_codes"] = sorted(param_code_data.dropna().unique().tolist())
+        else:
+            result["parameter_codes"] = []
+        
+        # Get date range
+        date_data = get_column_data("date_local", "Date Local")
+        if date_data is not None:
+            date_series = pd.to_datetime(date_data, errors='coerce')
+            valid_dates = date_series.dropna()
+            if not valid_dates.empty:
+                result["date_range"] = {
+                    "min": valid_dates.min().strftime("%Y-%m-%d"),
+                    "max": valid_dates.max().strftime("%Y-%m-%d")
+                }
+        
+        # Get measurement range
+        measurement_data = get_column_data("sample_measurement", "Sample Measurement")
+        if measurement_data is not None:
+            measurement_series = pd.to_numeric(measurement_data, errors='coerce')
+            valid_measurements = measurement_series.dropna()
+            if not valid_measurements.empty:
+                result["measurement_range"] = {
+                    "min": float(valid_measurements.min()),
+                    "max": float(valid_measurements.max())
+                }
+        
+        # Get geographic bounds
+        lat_data = get_column_data("latitude", "Latitude")
+        lng_data = get_column_data("longitude", "Longitude")
+        
+        if lat_data is not None and lng_data is not None:
+            lat_series = pd.to_numeric(lat_data, errors='coerce')
+            lng_series = pd.to_numeric(lng_data, errors='coerce')
+            
+            valid_lat = lat_series.dropna()
+            valid_lng = lng_series.dropna()
+            
+            if not valid_lat.empty and not valid_lng.empty:
+                result["geographic_bounds"] = {
+                    "lat_min": float(valid_lat.min()),
+                    "lat_max": float(valid_lat.max()),
+                    "lng_min": float(valid_lng.min()),
+                    "lng_max": float(valid_lng.max())
+                }
+        
+        # Add metadata with column information
+        available_columns = list(df.columns)
+        result["metadata"] = {
+            "namespace": namespace,
+            "version": version,
+            "total_rows": len(df),
+            "total_columns": len(df.columns),
+            "available_columns": available_columns,
+            "column_format": "original" if "Parameter Name" in available_columns else "cleaned"
+        }
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get available filter values: {str(e)}")
+
+@router.get("/joel", summary="Joel route")
+def joel():
+    import logging
+
+    import numpy as np
+    import pandas as pd
+
+    from api.helpers.dspaces_client import get_client
+    from api.models.dspaces_model import BoundingBox, Interval
+    from api.services.dspaces_services.get_dspaces_var_obj import get_dspaces_var_obj
+    from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
+
+    # Set up logging
+    logger = logging.getLogger(__name__)
+
+    # Utility function to store DataFrame column in DataSpaces
+    def store_dataframe_column(df, col_name, namespace, version):
+        """Store a single DataFrame column in DataSpaces"""
+        logger.info(f"Storing column {col_name} in DataSpaces")
+
+        # Handle different data types appropriately
+        if df[col_name].dtype == "object":  # String columns
+            # Convert strings to bytes for storage
+            col_data = np.array([str(x).encode("utf-8") for x in df[col_name]])
+            element_type = 1  # np.uint8.num (byte data)
+            element_size = 1  # Size of uint8
+
+            # Store string lengths to enable reconstruction
+            str_lengths = np.array([len(x) for x in col_data], dtype=np.int32)
+
+            # Store string lengths metadata
+            lengths_box = BoundingBox(bounds=[Interval(start=0, span=len(str_lengths))])
+            put_dspaces_obj(
+                namespace=namespace,
+                name=f"{col_name}_lengths",
+                version=version,
+                box=lengths_box,
+                element_size=str_lengths.itemsize,
+                element_type=str_lengths.dtype.num,
+                data=str_lengths.tobytes(),
+            )
+
+            # Each string could have different length, flatten the array
+            flat_data = np.concatenate(
+                [np.frombuffer(x, dtype=np.uint8) for x in col_data]
+            )
+        else:
+            # For numeric columns
+            col_data = df[col_name].to_numpy()
+            element_type = col_data.dtype.num
+            element_size = col_data.itemsize
+            flat_data = col_data
+
+        # Create bounding box for this column
+        box = BoundingBox(bounds=[Interval(start=0, span=len(flat_data))])
+
+        # Store the column data in DataSpaces
+        put_dspaces_obj(
+            namespace=namespace,
+            name=col_name,
+            version=version,
+            box=box,
+            element_size=element_size,
+            element_type=element_type,
+            data=flat_data.tobytes(),
+        )
+        
+        # Return metadata for verification
+        return {
+            "data": flat_data.tobytes(),
+            "element_type": element_type,
+            "element_size": element_size,
+            "box": box,
+            "is_string": df[col_name].dtype == "object"
+        }
+
+    # Utility function to verify DataSpaces data against original
+    def verify_dataframe_column(col_name, namespace, original_info):
+        """Verify DataSpaces column data against original"""
+        logger.info(f"Verifying column {col_name} from DataSpaces")
+
+        # Get objects for this column
+        objects = get_dspaces_var_obj(namespace=namespace, name=col_name)
+
+        # Check that objects exist
+        if not objects:
+            logger.error(f"No objects found for column {col_name}")
+            assert len(objects) > 0, f"No objects found for column {col_name}"
+
+        # Get the latest version
+        latest_obj = max(objects, key=lambda x: x.version)
+        
+        # Get the bounds for retrieval
+        lb = tuple([b.start for b in latest_obj.bounds])
+        ub = tuple([(b.start + b.span) - 1 for b in latest_obj.bounds])
+        
+        # Fetch the actual data
+        client = get_client()
+        timeout = -1  # -1 means wait indefinitely
+        fetched_data = client.Get(latest_obj.name, latest_obj.version, lb, ub, timeout)
+        
+        # Check that data was retrieved
+        if fetched_data is None:
+            logger.error(f"Failed to fetch data for column {col_name}")
+            assert fetched_data is not None, f"Failed to fetch data for column {col_name}"
+
+        # Get the original data info for comparison
+        original_data = original_info["data"]
+        element_type = original_info["element_type"]
+
+        # Verify data integrity based on data type
+        if element_type == 1:  # String/byte data
+            if len(fetched_data) != len(original_data):
+                logger.error(f"Data length mismatch for column {col_name}")
+                assert len(fetched_data) == len(original_data), f"Data length mismatch for column {col_name}"
+        else:  # Numeric data
+            # Convert to numpy arrays for comparison
+            dtype = np.dtype(np.sctypeDict.get(element_type))
+            fetched_array = np.frombuffer(fetched_data, dtype=dtype)
+            original_array = np.frombuffer(original_data, dtype=dtype)
+
+            if len(fetched_array) != len(original_array):
+                logger.error(f"Data length mismatch for column {col_name}: fetched={len(fetched_array)}, original={len(original_array)}")
+                assert len(fetched_array) == len(original_array), f"Data length mismatch for column {col_name}"
+
+            # Check array content equality
+            try:
+                np.testing.assert_array_equal(fetched_array, original_array)
+            except AssertionError as e:
+                logger.error(f"Data content mismatch for column {col_name}: {e}")
+                raise
+
+        logger.info(f"Verification successful for column {col_name}")
+        return "Success"
+
+    # Utility function to reconstruct a DataFrame from DataSpaces
+    def reconstruct_dataframe(columns, namespace, version):
+        """Reconstruct a DataFrame from columns stored in DataSpaces"""
+        logger.info(f"Reconstructing DataFrame from {len(columns)} columns")
+
+        df_data = {}
+        client = get_client()
+        timeout = -1  # -1 means wait indefinitely
+
+        for col_name in columns:
+            try:
+                # Get object metadata
+                objects = get_dspaces_var_obj(namespace=namespace, name=col_name)
+
+                if not objects:
+                    logger.error(f"No objects found for column {col_name}")
+                    continue
+
+                logger.info(f"Found {len(objects)} objects for column {col_name}")
+
+                # Get the specified version or the latest if not found
+                col_obj = next((obj for obj in objects if obj.version == version), None)
+                if col_obj is None:
+                    col_obj = max(objects, key=lambda x: x.version)
+
+                # Get bounds for retrieval
+                lb = tuple([b.start for b in col_obj.bounds])
+                ub = tuple([(b.start + b.span) - 1 for b in col_obj.bounds])
+
+                logger.info(f"Retrieving data for column {col_name}, bounds: {lb} to {ub}")
+
+                # Fetch the actual data
+                fetched_data = client.Get(col_obj.name, col_obj.version, lb, ub, timeout)
+                if fetched_data is None:
+                    logger.error(f"Failed to fetch data for column {col_name}")
+                    continue
+
+                logger.info(f"Successfully fetched {len(fetched_data)} bytes for column {col_name}")
+
+                # Check if this is a string column by looking for _lengths metadata
+                length_objects = get_dspaces_var_obj(namespace=namespace, name=f"{col_name}_lengths")
+
+                logger.info(f"Column {col_name}: {'Found' if length_objects else 'Did not find'} _lengths metadata")
+
+                if length_objects:
+                    # It's a string column - need to reconstruct from bytes and lengths
+                    # Get the string lengths object
+                    length_obj = next((obj for obj in length_objects if obj.version == version), None)
+                    if length_obj is None:
+                        length_obj = max(length_objects, key=lambda x: x.version)
+
+                    # Get bounds for retrieval
+                    lb_len = tuple([b.start for b in length_obj.bounds])
+                    ub_len = tuple([(b.start + b.span) - 1 for b in length_obj.bounds])
+
+                    logger.info(f"Retrieving length data for column {col_name}, bounds: {lb_len} to {ub_len}")
+
+                    # Fetch the lengths data
+                    lengths_data = client.Get(length_obj.name, length_obj.version, lb_len, ub_len, timeout)
+                    if lengths_data is None:
+                        logger.error(f"Failed to fetch length data for string column {col_name}")
+                        continue
+
+                    # Convert to numpy array
+                    lengths = np.frombuffer(lengths_data, dtype=np.int32)
+
+                    logger.info(f"Got {len(lengths)} string lengths for column {col_name}: {lengths}")
+
+                    # Reconstruct strings from flat byte array
+                    strings = []
+                    pos = 0
+                    for i, length in enumerate(lengths):
+                        if pos + length > len(fetched_data):
+                            logger.error(f"Out of bounds error at position {pos}, length {length}, data size {len(fetched_data)}")
+                            break
+
+                        string_bytes = fetched_data[pos:pos+length]
+                        strings.append(string_bytes.decode('utf-8'))
+                        logger.debug(f"Reconstructed string {i}: '{strings[-1]}' (length {length})")
+                        pos += length
+
+                    logger.info(f"Reconstructed {len(strings)} strings for column {col_name}")
+                    df_data[col_name] = strings
+                else:
+                    # It's a numeric column
+                    # First, check if we have information about the element type
+                    # In a real scenario, it's better to store dtype information separately
+                    if col_name == "Age":
+                        # For this example, we know Age is an integer
+                        array = np.frombuffer(fetched_data, dtype=np.int64)
+                        df_data[col_name] = array.tolist()  # Convert to list for DataFrame construction
+                        logger.info(f"Processed numeric column {col_name} as int64: {array.tolist()}")
+                    else:
+                        # Try common numeric types in order of likelihood
+                        for dtype_try in [np.int32, np.int64, np.float32, np.float64]:
+                            try:
+                                array = np.frombuffer(fetched_data, dtype=dtype_try)
+                                df_data[col_name] = array.tolist()  # Convert to list for DataFrame construction
+                                logger.info(f"Processed numeric column {col_name} as {dtype_try}: {array.tolist()}")
+                                break
+                            except Exception:
+                                continue
+
+            except Exception as e:
+                logger.error(f"Error reconstructing column {col_name}: {str(e)}")
+                continue
+
+        # Create pandas DataFrame from reconstructed data
+        logger.info(f"Reconstructed data keys: {list(df_data.keys())}")
+        logger.info(f"Reconstructed data: {df_data}")
+        return pd.DataFrame(df_data)
+
+    # Create a sample pandas DataFrame
+    logger.info("Creating sample DataFrame")
+    data = {
+        "Name": ["Bo", "Philip", "Saleem", "Jess"],
+        "Age": [28, 34, 29, 42],
+        "City": ["New York", "Boston", "Chicago", "Denver"],
+    }
+    df = pd.DataFrame(data)
+
+    # Handle edge case: empty DataFrame
+    if df.empty:
+        logger.warning("Empty DataFrame provided, returning early")
+        return {"error": "Empty DataFrame cannot be processed"}
+
+    # Process each column and store in DataSpaces
+    namespace = "joel_dataframe"
+    version = 0
+    stored_columns = {}
+
+    # Store each column in DataSpaces
+    for col in df.columns:
+        try:
+            stored_columns[col] = store_dataframe_column(df, col, namespace, version)
+            logger.info(f"Successfully stored column {col}")
+        except Exception as e:
+            logger.error(f"Failed to store column {col}: {str(e)}")
+            return {"error": f"Failed to store column {col}: {str(e)}"}
+
+    # Verify all stored columns
+    verification_results = {}
+    for col in df.columns:
+        try:
+            verification_results[col] = verify_dataframe_column(col, namespace, stored_columns[col])
+        except Exception as e:
+            logger.error(f"Verification failed for column {col}: {str(e)}")
+            verification_results[col] = f"Failed: {str(e)}"
+
+    logger.info("DataFrame processing and verification complete")
+
+    # Demonstrate DataFrame reconstruction
+    try:
+        # Use the stored_columns dictionary keys instead of querying DataSpaces
+        df_columns = list(stored_columns.keys())
+        logger.info(f"Columns to reconstruct from stored_columns: {df_columns}")
+
+        # Reconstruct the DataFrame
+        reconstructed_df = reconstruct_dataframe(df_columns, namespace, version)
+        logger.info("DataFrame reconstruction successful")
+
+        # Compare with original DataFrame
+        logger.info(f"Original DataFrame:\n{df}")
+        logger.info(f"Reconstructed DataFrame:\n{reconstructed_df}")
+
+        # Check if the DataFrames are equal
+        is_equal = df.equals(reconstructed_df)
+        logger.info(f"DataFrames are equal: {is_equal}")
+
+        # Include reconstructed DataFrame in the response
+        reconstruction_result = {
+            "success": is_equal,
+            "reconstructed_data": reconstructed_df.to_dict(orient="records")
+        }
+    except Exception as e:
+        logger.error(f"DataFrame reconstruction failed: {str(e)}")
+        reconstruction_result = {
+            "success": False,
+            "error": str(e)
+        }
+
+    # Return the DataFrame as JSON along with verification results
+    return {
+        "data": df.to_dict(orient="records"),
+        "verification": verification_results,
+        "reconstruction": reconstruction_result
+    }
