@@ -1,0 +1,4 @@
+# Requirements for the Salt Lake City Data Showcase
+requests>=2.25.0
+pandas>=1.3.0
+matplotlib>=3.3.0
