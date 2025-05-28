@@ -1,4 +1,6 @@
 import json
+from datetime import date
+from typing import List, Optional
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -19,7 +21,7 @@ class BoundingBox(BaseModel):
 
 class DSObject(BaseModel):
     name: str
-    namespace: str = None
+    namespace: Optional[str] = None
     version: int
     bounds: list[Interval]
 
@@ -52,3 +54,67 @@ class CSVIngestionResponse(BaseModel):
     stored_objects: dict
     success: bool
     message: str
+
+class SaltLakeFilterRequest(BaseModel):
+    """Filter request model for Salt Lake County dataset"""
+    
+    # Date/Time filters
+    date_from: Optional[date] = Field(default=None, description="Start date (YYYY-MM-DD)")
+    date_to: Optional[date] = Field(default=None, description="End date (YYYY-MM-DD)")
+    time_from: Optional[str] = Field(default=None, description="Start time (HH:MM format)")
+    time_to: Optional[str] = Field(default=None, description="End time (HH:MM format)")
+    
+    # Numeric filters
+    measurement_min: Optional[float] = Field(default=None, description="Minimum sample measurement value")
+    measurement_max: Optional[float] = Field(default=None, description="Maximum sample measurement value")
+    
+    # Geographic filters
+    lat_min: Optional[float] = Field(default=None, description="Minimum latitude", ge=-90, le=90)
+    lat_max: Optional[float] = Field(default=None, description="Maximum latitude", ge=-90, le=90)
+    lng_min: Optional[float] = Field(default=None, description="Minimum longitude", ge=-180, le=180)
+    lng_max: Optional[float] = Field(default=None, description="Maximum longitude", ge=-180, le=180)
+    
+    # Categorical filters
+    parameter_names: Optional[List[str]] = Field(default=None, description="List of parameter names to include")
+    state_codes: Optional[List[str]] = Field(default=None, description="List of state codes to include")
+    county_codes: Optional[List[str]] = Field(default=None, description="List of county codes to include")
+    site_nums: Optional[List[str]] = Field(default=None, description="List of site numbers to include")
+    parameter_codes: Optional[List[str]] = Field(default=None, description="List of parameter codes to include")
+    
+    # Result controls
+    limit: Optional[int] = Field(default=None, description="Maximum number of rows to return", ge=1)
+    columns: Optional[List[str]] = Field(default=None, description="Specific columns to return")
+
+class SaltLakeFilterResponse(BaseModel):
+    """Response model for filtered Salt Lake County data"""
+    
+    data: List[dict] = Field(description="Filtered data records")
+    metadata: dict = Field(description="Metadata about the filtered results")
+    filter_summary: dict = Field(description="Summary of applied filters")
+    
+class SaltLakeAggregateRequest(BaseModel):
+    """Request model for aggregated Salt Lake County data"""
+    
+    # Inherit filters from SaltLakeFilterRequest
+    date_from: Optional[date] = Field(default=None, description="Start date (YYYY-MM-DD)")
+    date_to: Optional[date] = Field(default=None, description="End date (YYYY-MM-DD)")
+    parameter_names: Optional[List[str]] = Field(default=None, description="List of parameter names to include")
+    lat_min: Optional[float] = Field(default=None, description="Minimum latitude", ge=-90, le=90)
+    lat_max: Optional[float] = Field(default=None, description="Maximum latitude", ge=-90, le=90)
+    lng_min: Optional[float] = Field(default=None, description="Minimum longitude", ge=-180, le=180)
+    lng_max: Optional[float] = Field(default=None, description="Maximum longitude", ge=-180, le=180)
+    
+    # Aggregation options
+    group_by: List[str] = Field(description="Fields to group by (e.g., ['Parameter Name', 'Date Local'])")
+    aggregations: List[str] = Field(
+        default=["mean", "min", "max", "count"],
+        description="Aggregation functions to apply to Sample Measurement"
+    )
+    
+class SaltLakeAggregateResponse(BaseModel):
+    """Response model for aggregated Salt Lake County data"""
+    
+    data: List[dict] = Field(description="Aggregated data records")
+    metadata: dict = Field(description="Metadata about the aggregation")
+    group_by: List[str] = Field(description="Fields used for grouping")
+    aggregations: List[str] = Field(description="Aggregation functions applied")

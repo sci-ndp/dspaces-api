@@ -80,8 +80,11 @@ def ingest_csv_to_dspaces(
                         col_storage['byte_arrays'].append(encoded)
                         col_storage['lengths'].append(len(encoded))
                 else:
-                    # Process numeric data
-                    if chunk[col].dtype in ['float64', 'float32']:
+                    # Process numeric data - force measurement columns to float
+                    if any(measurement_keyword in col.lower() for measurement_keyword in ['measurement', 'value', 'amount']):
+                        # Force measurement columns to float to avoid precision issues
+                        numeric_chunk = chunk[col].astype('float64').fillna(0.0).to_numpy()
+                    elif chunk[col].dtype in ['float64', 'float32']:
                         numeric_chunk = chunk[col].to_numpy()
                     else:
                         numeric_chunk = chunk[col].fillna(0).to_numpy()
@@ -291,8 +294,10 @@ def retrieve_csv_from_dspaces(
         for var in vars_list:
             if var.startswith(f"{namespace}\\") and not var.endswith("_lengths") and var != f"{namespace}\\__ingestion_metadata__":
                 col_name = var.replace(f"{namespace}\\", "")
+                # Convert clean column name back to original format for fallback
+                original_name = col_name.replace("_", " ")
                 columns_info[col_name] = {
-                    "original_name": col_name,
+                    "original_name": original_name,
                     "data_type": "unknown"
                 }
     
@@ -400,14 +405,33 @@ def retrieve_csv_from_dspaces(
                 # Try to determine the data type from the stored data
                 data_bytes = col_data.tobytes()
                 
-                # Try common numeric types
-                for dtype in [np.int64, np.float64, np.int32, np.float32]:
+                # Check if we have dtype info from metadata
+                original_dtype = col_info.get("dtype", "")
+                logger.info(f"Column {clean_col_name} original dtype: {original_dtype}")
+                
+                # Try to use the original dtype first, then fallback to common types
+                dtype_priority = []
+                if "float" in original_dtype:
+                    dtype_priority = [np.float64, np.float32, np.int64, np.int32]
+                elif "int" in original_dtype:
+                    dtype_priority = [np.int64, np.int32, np.float64, np.float32]
+                else:
+                    # Default order - prioritize float for lat/lng type columns
+                    if any(coord in clean_col_name.lower() for coord in ['lat', 'lng', 'lon', 'latitude', 'longitude']):
+                        dtype_priority = [np.float64, np.float32, np.int64, np.int32]
+                    else:
+                        dtype_priority = [np.float64, np.int64, np.float32, np.int32]
+                
+                # Try data types in priority order
+                for dtype in dtype_priority:
                     try:
                         if len(data_bytes) % dtype().itemsize == 0:
                             array = np.frombuffer(data_bytes, dtype=dtype)
                             df_data[col_info.get("original_name", clean_col_name)] = array
+                            logger.info(f"Successfully decoded {clean_col_name} as {dtype}")
                             break
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Failed to decode {clean_col_name} as {dtype}: {e}")
                         continue
                 else:
                     # Fallback to raw bytes
