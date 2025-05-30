@@ -13,27 +13,28 @@ from api.models.dspaces_model import (
     DSObject,
     DSRegHandle,
     RequestList,
+    # Backward compatibility aliases
     SaltLakeAggregateRequest,
     SaltLakeAggregateResponse,
     SaltLakeFilterRequest,
     SaltLakeFilterResponse,
 )
+from api.services.dspaces_services.filter_csv_data import (
+    _create_column_mapping,
+    aggregate_csv_dataset,
+    filter_csv_dataset,
+)
 from api.services.dspaces_services.get_dspaces_obj import get_dspaces_obj
 from api.services.dspaces_services.get_dspaces_var_obj import get_dspaces_var_obj
 from api.services.dspaces_services.get_dspaces_vars import get_dspaces_vars
-from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
-from api.services.dspaces_services.pexec_dspaces_obj import pexec_dspaces_obj
-from api.services.dspaces_services.mpexec_dspaces_obj import mpexec_dspaces_obj
-from api.services.dspaces_services.reg_dspaces import reg_dspaces
-from api.services.dspaces_services.filter_salt_lake_data import (
-    aggregate_salt_lake_data,
-    filter_salt_lake_data,
-    _create_column_mapping,
-)
 from api.services.dspaces_services.ingest_csv_data import (
     ingest_csv_to_dspaces,
     retrieve_csv_from_dspaces,
 )
+from api.services.dspaces_services.mpexec_dspaces_obj import mpexec_dspaces_obj
+from api.services.dspaces_services.pexec_dspaces_obj import pexec_dspaces_obj
+from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
+from api.services.dspaces_services.reg_dspaces import reg_dspaces
 
 router = APIRouter()
 
@@ -492,12 +493,20 @@ def ds_reg(
 
 
 
-@router.post("/ingest/salt-lake-county",
+@router.post("/ingest/{dataset_type}",
              status_code=200,
-             summary="Ingest Salt Lake County CSV data into DataSpaces",
+             summary="Ingest CSV dataset into DataSpaces",
              response_model=CSVIngestionResponse
 )
-def ingest_salt_lake_county_data(
+def ingest_csv_dataset(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset (e.g., 'salt-lake-county', 'air-quality', etc.)",
+            max_length=96
+        )
+    ],
     request: Annotated[
         CSVIngestionRequest,
         Body(
@@ -569,7 +578,7 @@ def ingest_salt_lake_county_data(
             version=ingestion_result["version"],
             stored_objects=ingestion_result["stored_objects"],
             success=successful_objects == total_objects,
-            message=f"Successfully ingested {successful_objects} out of {total_objects} columns from Salt Lake County data"
+            message=f"Successfully ingested {successful_objects} out of {total_objects} columns from {dataset_type} dataset"
         )
         
         return response
@@ -582,11 +591,19 @@ def ingest_salt_lake_county_data(
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
 
 
-@router.get("/retrieve/salt-lake-county/{namespace}",
+@router.get("/retrieve/{dataset_type}/{namespace}",
             status_code=200,
-            summary="Retrieve Salt Lake County data from DataSpaces as JSON"
+            summary="Retrieve CSV dataset from DataSpaces as JSON"
 )
-def retrieve_salt_lake_county_data(
+def retrieve_csv_dataset(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset",
+            max_length=96
+        )
+    ],
     namespace: Annotated[
         str,
         Path(
@@ -697,11 +714,19 @@ def retrieve_salt_lake_county_data(
         raise HTTPException(status_code=500, detail=f"Retrieval failed: {str(e)}")
 
 
-@router.get("/ingest/salt-lake-county/sample",
+@router.get("/ingest/{dataset_type}/sample",
             status_code=200,
-            summary="Get a sample of the Salt Lake County CSV data"
+            summary="Get a sample of the CSV dataset"
 )
-def get_salt_lake_county_sample(
+def get_csv_dataset_sample(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset",
+            max_length=96
+        )
+    ],
     rows: Annotated[
         int,
         Query(
@@ -733,12 +758,24 @@ def get_salt_lake_county_sample(
     **HTTPException** if the file is not found or cannot be read
     """
     
-    csv_file_path = "data/salt_lake_county_utah_2016.csv"
+    # Map dataset types to their corresponding CSV files
+    dataset_file_mapping = {
+        "salt-lake-county": "data/salt_lake_county_utah_2016.csv",
+        "air-quality": "data/hourly_42602_2016.csv",
+        # Add more dataset types as needed
+    }
+    
+    csv_file_path = dataset_file_mapping.get(dataset_type)
+    if not csv_file_path:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unknown dataset type: {dataset_type}. Available types: {list(dataset_file_mapping.keys())}"
+        )
     
     if not os.path.exists(csv_file_path):
         raise HTTPException(
             status_code=404, 
-            detail=f"Salt Lake County CSV file not found at {csv_file_path}"
+            detail=f"CSV file for dataset type '{dataset_type}' not found at {csv_file_path}"
         )
     
     try:
@@ -784,17 +821,25 @@ def get_salt_lake_county_sample(
 
 
 
-@router.get("/retrieve/salt-lake-county/{namespace}/filter",
+@router.get("/retrieve/{dataset_type}/{namespace}/filter",
             status_code=200,
-            summary="Filter Salt Lake County data with advanced criteria",
+            summary="Filter CSV dataset with advanced criteria",
             response_model=SaltLakeFilterResponse
 )
-def filter_salt_lake_county_data(
+def filter_csv_dataset_data(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset",
+            max_length=96
+        )
+    ],
     namespace: Annotated[
         str,
         Path(
             title="Namespace",
-            description="The namespace where the Salt Lake County data is stored",
+            description="The namespace where the CSV dataset is stored",
             max_length=48
         )
     ],
@@ -1034,7 +1079,7 @@ def filter_salt_lake_county_data(
         )
         
         # Apply filters
-        result = filter_salt_lake_data(namespace, filter_request, version)
+        result = filter_csv_dataset(namespace, filter_request, version)
         
         return SaltLakeFilterResponse(
             data=result["data"],
@@ -1047,12 +1092,20 @@ def filter_salt_lake_county_data(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Filtering failed: {str(e)}")
 
-@router.post("/retrieve/salt-lake-county/{namespace}/filter",
+@router.post("/retrieve/{dataset_type}/{namespace}/filter",
              status_code=200,
-             summary="Filter Salt Lake County data with JSON criteria",
+             summary="Filter CSV dataset with JSON criteria",
              response_model=SaltLakeFilterResponse
 )
-def filter_salt_lake_county_data_json(
+def filter_csv_dataset_data_json(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset",
+            max_length=96
+        )
+    ],
     namespace: Annotated[
         str,
         Path(
@@ -1111,7 +1164,7 @@ def filter_salt_lake_county_data_json(
     
     try:
         # Apply filters
-        result = filter_salt_lake_data(namespace, filter_request, version)
+        result = filter_csv_dataset(namespace, filter_request, version)
         
         return SaltLakeFilterResponse(
             data=result["data"],
@@ -1122,12 +1175,20 @@ def filter_salt_lake_county_data_json(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Filtering failed: {str(e)}")
 
-@router.post("/retrieve/salt-lake-county/{namespace}/aggregate",
+@router.post("/retrieve/{dataset_type}/{namespace}/aggregate",
              status_code=200,
-             summary="Get aggregated Salt Lake County data",
+             summary="Get aggregated CSV dataset data",
              response_model=SaltLakeAggregateResponse
 )
-def aggregate_salt_lake_county_data(
+def aggregate_csv_dataset_data(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset",
+            max_length=96
+        )
+    ],
     namespace: Annotated[
         str,
         Path(
@@ -1192,7 +1253,7 @@ def aggregate_salt_lake_county_data(
     
     try:
         # Apply aggregation
-        result = aggregate_salt_lake_data(namespace, aggregate_request, version)
+        result = aggregate_csv_dataset(namespace, aggregate_request, version)
         
         return SaltLakeAggregateResponse(
             data=result["data"],
@@ -1204,11 +1265,19 @@ def aggregate_salt_lake_county_data(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Aggregation failed: {str(e)}")
 
-@router.get("/retrieve/salt-lake-county/{namespace}/available-filters",
+@router.get("/retrieve/{dataset_type}/{namespace}/available-filters",
             status_code=200,
-            summary="Get available filter values for Salt Lake County data"
+            summary="Get available filter values for CSV dataset"
 )
 def get_available_filter_values(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset",
+            max_length=96
+        )
+    ],
     namespace: Annotated[
         str,
         Path(

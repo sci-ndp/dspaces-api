@@ -1,5 +1,6 @@
 """
-Service for filtering Salt Lake County dataset stored in DataSpaces.
+Service for filtering CSV datasets stored in DataSpaces.
+Generic implementation that can handle various CSV dataset types.
 """
 
 import logging
@@ -7,7 +8,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd  # type: ignore
 
-from api.models.dspaces_model import SaltLakeAggregateRequest, SaltLakeFilterRequest
+from api.models.dspaces_model import CSVDatasetAggregateRequest, CSVDatasetFilterRequest
 from api.services.dspaces_services.ingest_csv_data import retrieve_csv_from_dspaces
 
 logger = logging.getLogger(__name__)
@@ -64,10 +65,10 @@ def _create_column_mapping() -> Dict[str, str]:
     }
     return common_columns
 
-def _normalize_filter_request_columns(filter_request: SaltLakeFilterRequest) -> SaltLakeFilterRequest:
+def _normalize_filter_request_columns(filter_request: CSVDatasetFilterRequest) -> CSVDatasetFilterRequest:
     """Normalize column names in filter request to cleaned format."""
     # Create a copy of the filter request
-    normalized_request = SaltLakeFilterRequest(
+    normalized_request = CSVDatasetFilterRequest(
         date_from=filter_request.date_from,
         date_to=filter_request.date_to,
         time_from=filter_request.time_from,
@@ -83,6 +84,7 @@ def _normalize_filter_request_columns(filter_request: SaltLakeFilterRequest) -> 
         county_codes=filter_request.county_codes,
         site_nums=filter_request.site_nums,
         parameter_codes=filter_request.parameter_codes,
+        custom_filters=filter_request.custom_filters,
         limit=filter_request.limit,
         columns=None  # Will be set below
     )
@@ -94,23 +96,23 @@ def _normalize_filter_request_columns(filter_request: SaltLakeFilterRequest) -> 
     
     return normalized_request
 
-def filter_salt_lake_data(
+def filter_csv_dataset(
     namespace: str,
-    filter_request: SaltLakeFilterRequest,
+    filter_request: CSVDatasetFilterRequest,
     version: int = 0
 ) -> Dict[str, Any]:
     """
-    Filter Salt Lake County data based on the provided criteria.
+    Filter CSV dataset data based on the provided criteria.
     
     Args:
-        namespace: The namespace where the Salt Lake data is stored
+        namespace: The namespace where the CSV data is stored
         filter_request: The filtering criteria
         version: Version of the data to retrieve
         
     Returns:
         Dict containing filtered data and metadata
     """
-    logger.info(f"Filtering Salt Lake data in namespace: {namespace}")
+    logger.info(f"Filtering CSV dataset in namespace: {namespace}")
     
     # Step 1: Normalize filter request column names
     normalized_request = _normalize_filter_request_columns(filter_request)
@@ -190,45 +192,51 @@ def filter_salt_lake_data(
         "filter_summary": _create_filter_summary(filter_request)
     }
 
-def aggregate_salt_lake_data(
+def aggregate_csv_dataset(
     namespace: str,
-    aggregate_request: SaltLakeAggregateRequest,
+    aggregate_request: CSVDatasetAggregateRequest,
     version: int = 0
 ) -> Dict[str, Any]:
     """
-    Aggregate Salt Lake County data based on the provided criteria.
+    Aggregate CSV dataset data based on the provided criteria.
     
     Args:
-        namespace: The namespace where the Salt Lake data is stored
+        namespace: The namespace where the CSV data is stored
         aggregate_request: The aggregation criteria
         version: Version of the data to retrieve
         
     Returns:
         Dict containing aggregated data and metadata
     """
-    logger.info(f"Aggregating Salt Lake data in namespace: {namespace}")
+    logger.info(f"Aggregating CSV dataset in namespace: {namespace}")
     
     # Step 1: Create a filter request from aggregate request
-    filter_request = SaltLakeFilterRequest(
+    filter_request = CSVDatasetFilterRequest(
         date_from=aggregate_request.date_from,
         date_to=aggregate_request.date_to,
         parameter_names=aggregate_request.parameter_names,
         lat_min=aggregate_request.lat_min,
         lat_max=aggregate_request.lat_max,
         lng_min=aggregate_request.lng_min,
-        lng_max=aggregate_request.lng_max
+        lng_max=aggregate_request.lng_max,
+        custom_filters=aggregate_request.custom_filters
     )
     
     # Step 2: Get required columns for aggregation (normalize group_by columns)
     normalized_group_by = [_normalize_column_name(col) for col in aggregate_request.group_by]
-    required_columns = normalized_group_by + ["Sample_Measurement"]  # Use underscore version
+    
+    # Use configurable aggregation column or default to "Sample_Measurement"
+    aggregation_column = aggregate_request.aggregation_column or "Sample Measurement"
+    normalized_agg_column = _normalize_column_name(aggregation_column)
+    
+    required_columns = normalized_group_by + [normalized_agg_column]
     additional_required = _get_required_columns(filter_request)
     if additional_required:
         required_columns.extend(additional_required)
     filter_request.columns = required_columns
     
     # Step 3: Get filtered data
-    filtered_result = filter_salt_lake_data(namespace, filter_request, version)
+    filtered_result = filter_csv_dataset(namespace, filter_request, version)
     df = pd.DataFrame(filtered_result["data"])
     
     if df.empty:
@@ -246,20 +254,20 @@ def aggregate_salt_lake_data(
     
     # Step 4: Perform aggregation
     try:
-        # Find the correct column name for Sample Measurement (could be with or without underscore)
-        measurement_col = None
+        # Find the correct column name for the aggregation column
+        aggregation_col = None
         for col in df.columns:
-            if "sample" in col.lower() and "measurement" in col.lower():
-                measurement_col = col
+            if _normalize_column_name(col) == normalized_agg_column:
+                aggregation_col = col
                 break
         
-        if measurement_col is None:
-            raise ValueError("Sample Measurement column not found in retrieved data")
+        if aggregation_col is None:
+            raise ValueError(f"Aggregation column '{aggregation_column}' not found in retrieved data")
         
-        logger.info(f"Using measurement column: {measurement_col}")
+        logger.info(f"Using aggregation column: {aggregation_col}")
         
-        # Convert Sample Measurement to numeric
-        df[measurement_col] = pd.to_numeric(df[measurement_col], errors='coerce')
+        # Convert aggregation column to numeric
+        df[aggregation_col] = pd.to_numeric(df[aggregation_col], errors='coerce')
         
         # Group by specified columns (use normalized names)
         grouped = df.groupby(normalized_group_by)
@@ -268,17 +276,17 @@ def aggregate_salt_lake_data(
         agg_dict = {}
         for agg_func in aggregate_request.aggregations:
             if agg_func == "mean":
-                agg_dict[f"Sample Measurement_{agg_func}"] = grouped[measurement_col].mean()
+                agg_dict[f"{aggregation_column}_{agg_func}"] = grouped[aggregation_col].mean()
             elif agg_func == "min":
-                agg_dict[f"Sample Measurement_{agg_func}"] = grouped[measurement_col].min()
+                agg_dict[f"{aggregation_column}_{agg_func}"] = grouped[aggregation_col].min()
             elif agg_func == "max":
-                agg_dict[f"Sample Measurement_{agg_func}"] = grouped[measurement_col].max()
+                agg_dict[f"{aggregation_column}_{agg_func}"] = grouped[aggregation_col].max()
             elif agg_func == "count":
-                agg_dict[f"Sample Measurement_{agg_func}"] = grouped[measurement_col].count()
+                agg_dict[f"{aggregation_column}_{agg_func}"] = grouped[aggregation_col].count()
             elif agg_func == "std":
-                agg_dict[f"Sample Measurement_{agg_func}"] = grouped[measurement_col].std()
+                agg_dict[f"{aggregation_column}_{agg_func}"] = grouped[aggregation_col].std()
             elif agg_func == "median":
-                agg_dict[f"Sample Measurement_{agg_func}"] = grouped[measurement_col].median()
+                agg_dict[f"{aggregation_column}_{agg_func}"] = grouped[aggregation_col].median()
         
         # Combine results
         result_df = pd.DataFrame(agg_dict).reset_index()
@@ -309,7 +317,7 @@ def aggregate_salt_lake_data(
         logger.error(f"Failed to aggregate data: {str(e)}")
         raise ValueError(f"Aggregation failed: {str(e)}")
 
-def _get_required_columns(filter_request: SaltLakeFilterRequest) -> Optional[List[str]]:
+def _get_required_columns(filter_request: CSVDatasetFilterRequest) -> Optional[List[str]]:
     """Get the columns required for filtering operations."""
     required = set()
     
@@ -335,13 +343,18 @@ def _get_required_columns(filter_request: SaltLakeFilterRequest) -> Optional[Lis
     if filter_request.parameter_codes:
         required.add("Parameter_Code")
     
+    # Handle custom filters
+    if filter_request.custom_filters:
+        for column_name in filter_request.custom_filters.keys():
+            required.add(_normalize_column_name(column_name))
+    
     # Add requested columns
     if filter_request.columns:
         required.update(filter_request.columns)
     
     return list(required) if required else None
 
-def _apply_filters(df: pd.DataFrame, filter_request: SaltLakeFilterRequest) -> pd.DataFrame:
+def _apply_filters(df: pd.DataFrame, filter_request: CSVDatasetFilterRequest) -> pd.DataFrame:
     """Apply all filters to the DataFrame."""
     filtered_df = df.copy()
     
@@ -431,9 +444,29 @@ def _apply_filters(df: pd.DataFrame, filter_request: SaltLakeFilterRequest) -> p
         if "Parameter_Code" in filtered_df.columns:
             filtered_df = filtered_df[filtered_df["Parameter_Code"].isin(filter_request.parameter_codes)]
     
+    # Custom filters
+    if filter_request.custom_filters:
+        for column_name, filter_values in filter_request.custom_filters.items():
+            normalized_col = _normalize_column_name(column_name)
+            if normalized_col in filtered_df.columns:
+                if isinstance(filter_values, list):
+                    # Handle list of values (isin filter)
+                    filtered_df = filtered_df[filtered_df[normalized_col].isin(filter_values)]
+                elif isinstance(filter_values, dict):
+                    # Handle range filters like {"min": 10, "max": 50}
+                    if "min" in filter_values:
+                        filtered_df[normalized_col] = pd.to_numeric(filtered_df[normalized_col], errors='coerce')
+                        filtered_df = filtered_df[filtered_df[normalized_col] >= filter_values["min"]]
+                    if "max" in filter_values:
+                        filtered_df[normalized_col] = pd.to_numeric(filtered_df[normalized_col], errors='coerce')
+                        filtered_df = filtered_df[filtered_df[normalized_col] <= filter_values["max"]]
+                else:
+                    # Handle single value filter
+                    filtered_df = filtered_df[filtered_df[normalized_col] == filter_values]
+    
     return filtered_df
 
-def _create_filter_summary(filter_request: SaltLakeFilterRequest) -> Dict[str, Any]:
+def _create_filter_summary(filter_request: CSVDatasetFilterRequest) -> Dict[str, Any]:
     """Create a summary of applied filters."""
     summary: Dict[str, Any] = {}
     
@@ -471,5 +504,7 @@ def _create_filter_summary(filter_request: SaltLakeFilterRequest) -> Dict[str, A
         summary["limit"] = filter_request.limit
     if filter_request.columns:
         summary["columns"] = filter_request.columns
+    if filter_request.custom_filters:
+        summary["custom_filters"] = filter_request.custom_filters
     
     return summary
