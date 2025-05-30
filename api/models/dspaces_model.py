@@ -55,8 +55,10 @@ class CSVIngestionResponse(BaseModel):
     success: bool
     message: str
 
-class SaltLakeFilterRequest(BaseModel):
-    """Filter request model for Salt Lake County dataset"""
+# Generic CSV Dataset Models
+
+class CSVDatasetFilterRequest(BaseModel):
+    """Generic filter request model for CSV datasets"""
     
     # Date/Time filters
     date_from: Optional[date] = Field(default=None, description="Start date (YYYY-MM-DD)")
@@ -81,21 +83,24 @@ class SaltLakeFilterRequest(BaseModel):
     site_nums: Optional[List[str]] = Field(default=None, description="List of site numbers to include")
     parameter_codes: Optional[List[str]] = Field(default=None, description="List of parameter codes to include")
     
+    # Generic categorical filters for any column
+    custom_filters: Optional[dict] = Field(default=None, description="Custom filters for any column as key-value pairs")
+    
     # Result controls
     limit: Optional[int] = Field(default=None, description="Maximum number of rows to return", ge=1)
     columns: Optional[List[str]] = Field(default=None, description="Specific columns to return")
 
-class SaltLakeFilterResponse(BaseModel):
-    """Response model for filtered Salt Lake County data"""
+class CSVDatasetFilterResponse(BaseModel):
+    """Response model for filtered CSV dataset data"""
     
     data: List[dict] = Field(description="Filtered data records")
     metadata: dict = Field(description="Metadata about the filtered results")
     filter_summary: dict = Field(description="Summary of applied filters")
     
-class SaltLakeAggregateRequest(BaseModel):
-    """Request model for aggregated Salt Lake County data"""
+class CSVDatasetAggregateRequest(BaseModel):
+    """Request model for aggregated CSV dataset data"""
     
-    # Inherit filters from SaltLakeFilterRequest
+    # Inherit filters from CSVDatasetFilterRequest
     date_from: Optional[date] = Field(default=None, description="Start date (YYYY-MM-DD)")
     date_to: Optional[date] = Field(default=None, description="End date (YYYY-MM-DD)")
     parameter_names: Optional[List[str]] = Field(default=None, description="List of parameter names to include")
@@ -104,17 +109,30 @@ class SaltLakeAggregateRequest(BaseModel):
     lng_min: Optional[float] = Field(default=None, description="Minimum longitude", ge=-180, le=180)
     lng_max: Optional[float] = Field(default=None, description="Maximum longitude", ge=-180, le=180)
     
+    # Custom filters
+    custom_filters: Optional[dict] = Field(default=None, description="Custom filters for any column as key-value pairs")
+    
     # Aggregation options
     group_by: List[str] = Field(description="Fields to group by (e.g., ['Parameter Name', 'Date Local'])")
     aggregations: List[str] = Field(
         default=["mean", "min", "max", "count"],
-        description="Aggregation functions to apply to Sample Measurement"
+        description="Aggregation functions to apply to measurement columns"
+    )
+    aggregation_column: Optional[str] = Field(
+        default="Sample_Measurement", 
+        description="Column to apply aggregation functions to"
     )
     
-class SaltLakeAggregateResponse(BaseModel):
-    """Response model for aggregated Salt Lake County data"""
+class CSVDatasetAggregateResponse(BaseModel):
+    """Response model for aggregated CSV dataset data"""
     
     data: List[dict] = Field(description="Aggregated data records")
     metadata: dict = Field(description="Metadata about the aggregation")
     group_by: List[str] = Field(description="Fields used for grouping")
     aggregations: List[str] = Field(description="Aggregation functions applied")
+
+# Backward compatibility aliases for Salt Lake County
+SaltLakeFilterRequest = CSVDatasetFilterRequest
+SaltLakeFilterResponse = CSVDatasetFilterResponse
+SaltLakeAggregateRequest = CSVDatasetAggregateRequest
+SaltLakeAggregateResponse = CSVDatasetAggregateResponse
