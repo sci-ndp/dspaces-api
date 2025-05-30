@@ -10,6 +10,8 @@ from api.models.dspaces_model import (
     BoundingBox,
     CSVIngestionRequest,
     CSVIngestionResponse,
+    DatasetInfo,
+    DatasetListResponse,
     DSObject,
     DSRegHandle,
     RequestList,
@@ -37,6 +39,74 @@ from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
 from api.services.dspaces_services.reg_dspaces import reg_dspaces
 
 router = APIRouter()
+
+def get_dataset_mapping() -> dict:
+    """
+    Get the mapping of dataset types to their CSV file paths and descriptions.
+    
+    Returns:
+        Dict mapping dataset_type to a dict with 'file_path' and 'description'
+    """
+    return {
+        "salt-lake-county": {
+            "file_path": "data/salt_lake_county_utah_2016.csv",
+            "description": "Salt Lake County air quality monitoring data for 2016"
+        },
+        "air-quality": {
+            "file_path": "data/hourly_42602_2016.csv", 
+            "description": "Hourly air quality measurements for station 42602 in 2016"
+        }
+        # Add more dataset types as needed
+    }
+
+@router.get("/datasets",
+            status_code=200,
+            summary="List all available datasets",
+            response_model=DatasetListResponse
+)
+def list_available_datasets() -> DatasetListResponse:
+    """
+    List all available CSV datasets that can be ingested and queried.
+    
+    Returns information about each dataset including:
+    - Dataset type identifier
+    - Description
+    - File path and availability
+    - Sample data endpoint
+    
+    This endpoint helps discover what datasets are available for analysis
+    and provides the necessary information to work with each dataset.
+    """
+    dataset_mapping = get_dataset_mapping()
+    datasets = []
+    
+    for dataset_type, info in dataset_mapping.items():
+        file_path = info["file_path"]
+        file_exists = os.path.exists(file_path)
+        file_size = os.path.getsize(file_path) if file_exists else None
+        
+        dataset_info = DatasetInfo(
+            dataset_type=dataset_type,
+            description=info["description"],
+            file_path=file_path,
+            file_exists=file_exists,
+            file_size_bytes=file_size,
+            sample_endpoint=f"/dspaces/ingest/{dataset_type}/sample"
+        )
+        datasets.append(dataset_info)
+    
+    return DatasetListResponse(
+        datasets=datasets,
+        total_datasets=len(datasets),
+        api_endpoints={
+            "sample_data": "/dspaces/ingest/{dataset_type}/sample",
+            "ingest_data": "/dspaces/ingest/{dataset_type}",
+            "retrieve_data": "/dspaces/retrieve/{dataset_type}/{namespace}",
+            "filter_data": "/dspaces/retrieve/{dataset_type}/{namespace}/filter",
+            "aggregate_data": "/dspaces/retrieve/{dataset_type}/{namespace}/aggregate",
+            "available_filters": "/dspaces/retrieve/{dataset_type}/{namespace}/available-filters"
+        }
+    )
 
 @router.post("/obj/{obj_name}/{obj_version}",
              summary="Retrieve a DataSpaces object"
@@ -759,18 +829,15 @@ def get_csv_dataset_sample(
     """
     
     # Map dataset types to their corresponding CSV files
-    dataset_file_mapping = {
-        "salt-lake-county": "data/salt_lake_county_utah_2016.csv",
-        "air-quality": "data/hourly_42602_2016.csv",
-        # Add more dataset types as needed
-    }
+    dataset_mapping = get_dataset_mapping()
     
-    csv_file_path = dataset_file_mapping.get(dataset_type)
-    if not csv_file_path:
+    if dataset_type not in dataset_mapping:
         raise HTTPException(
             status_code=400, 
-            detail=f"Unknown dataset type: {dataset_type}. Available types: {list(dataset_file_mapping.keys())}"
+            detail=f"Unknown dataset type: {dataset_type}. Available types: {list(dataset_mapping.keys())}"
         )
+    
+    csv_file_path = dataset_mapping[dataset_type]["file_path"]
     
     if not os.path.exists(csv_file_path):
         raise HTTPException(

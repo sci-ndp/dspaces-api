@@ -131,6 +131,23 @@ class CSVDatasetAggregateResponse(BaseModel):
     group_by: List[str] = Field(description="Fields used for grouping")
     aggregations: List[str] = Field(description="Aggregation functions applied")
 
+class DatasetInfo(BaseModel):
+    """Information about a single dataset"""
+    
+    dataset_type: str = Field(description="Dataset type identifier")
+    description: str = Field(description="Human-readable description of the dataset")
+    file_path: str = Field(description="Path to the CSV file")
+    file_exists: bool = Field(description="Whether the file exists on disk")
+    file_size_bytes: Optional[int] = Field(default=None, description="File size in bytes")
+    sample_endpoint: str = Field(description="URL to get sample data")
+
+class DatasetListResponse(BaseModel):
+    """Response model for listing all available datasets"""
+    
+    datasets: List[DatasetInfo] = Field(description="List of available datasets")
+    total_datasets: int = Field(description="Total number of available datasets")
+    api_endpoints: dict = Field(description="Related API endpoints for working with datasets")
+
 # Backward compatibility aliases for Salt Lake County
 SaltLakeFilterRequest = CSVDatasetFilterRequest
 SaltLakeFilterResponse = CSVDatasetFilterResponse
