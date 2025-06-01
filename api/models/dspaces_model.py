@@ -40,7 +40,7 @@ class DSRegHandle(BaseModel):
     parameters: dict
 
 class CSVIngestionRequest(BaseModel):
-    namespace: str = Field(title="Namespace", description="The namespace to store the CSV data under")
+    namespace: str = Field(default="datasets", title="Namespace", description="The namespace to store the CSV data under")
     version: int = Field(default=0, title="Version", description="Version number for the stored objects", ge=0)
     chunk_size: int = Field(default=10000, title="Chunk Size", description="Number of rows to process at once", gt=0)
 
