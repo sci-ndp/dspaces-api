@@ -5,8 +5,9 @@ This shows the difference between old behavior (required namespace)
 and new behavior (optional namespace with default).
 """
 
-import requests
 import json
+
+import requests
 
 API_BASE_URL = "http://localhost:8001"
 
@@ -21,7 +22,7 @@ def demo_default_namespace_feature():
     print("After our changes:  ✅ namespace defaults to 'datasets'")
     
     # Demo 1: Minimal payload (new behavior)
-    print(f"\n1️⃣ DEMO: Minimal Payload (Using Default Namespace)")
+    print("\n1️⃣ DEMO: Minimal Payload (Using Default Namespace)")
     print("-" * 50)
     
     minimal_payload = {
@@ -44,7 +45,7 @@ def demo_default_namespace_feature():
             result = response.json()
             namespace_used = result.get("namespace", "unknown")
             
-            print(f"\n✅ SUCCESS!")
+            print("\n✅ SUCCESS!")
             print(f"📁 Namespace automatically assigned: '{namespace_used}'")
             print(f"📊 Data stored: {result.get('total_rows', 0):,} rows, {result.get('total_columns', 0)} columns")
             
@@ -60,7 +61,7 @@ def demo_default_namespace_feature():
         print(f"❌ Error: {e}")
     
     # Demo 2: Explicit namespace (existing behavior)
-    print(f"\n2️⃣ DEMO: Explicit Namespace (Backward Compatibility)")
+    print("\n2️⃣ DEMO: Explicit Namespace (Backward Compatibility)")
     print("-" * 50)
     
     explicit_payload = {
@@ -83,7 +84,7 @@ def demo_default_namespace_feature():
             result = response.json()
             namespace_used = result.get("namespace", "unknown")
             
-            print(f"\n✅ SUCCESS!")
+            print("\n✅ SUCCESS!")
             print(f"📁 Namespace used: '{namespace_used}'")
             print(f"📊 Data stored: {result.get('total_rows', 0):,} rows, {result.get('total_columns', 0)} columns")
             
@@ -99,7 +100,7 @@ def demo_default_namespace_feature():
         print(f"❌ Error: {e}")
     
     # Demo 3: Show data retrieval from default namespace
-    print(f"\n3️⃣ DEMO: Retrieving Data from Default Namespace")
+    print("\n3️⃣ DEMO: Retrieving Data from Default Namespace")
     print("-" * 50)
     
     try:
@@ -133,7 +134,7 @@ def demo_default_namespace_feature():
     print("✅ All endpoints (ingest, retrieve, filter) work with defaults")
     print("✅ Zero breaking changes - fully backward compatible!")
     
-    print(f"\n🎉 The DSpaces CSV API now provides a much better developer experience!")
+    print("\n🎉 The DSpaces CSV API now provides a much better developer experience!")
 
 if __name__ == "__main__":
     demo_default_namespace_feature()

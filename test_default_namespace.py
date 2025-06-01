@@ -3,15 +3,16 @@
 Test script to verify that the default namespace configuration is working correctly.
 """
 
-import sys
 import json
+import sys
 from pathlib import Path
 
 # Add the api directory to the Python path
 sys.path.insert(0, str(Path(__file__).parent / "api"))
 
-from models.dspaces_model import CSVIngestionRequest
 from config.dspaces import settings
+from models.dspaces_model import CSVIngestionRequest
+
 
 def test_default_namespace():
     """Test that CSVIngestionRequest uses 'datasets' as default namespace."""

@@ -5,8 +5,6 @@ Tests all CSV-related endpoints to ensure default namespace works across the API
 """
 
 import requests
-import json
-import time
 
 API_BASE_URL = "http://localhost:8001"
 

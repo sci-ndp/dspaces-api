@@ -4,10 +4,10 @@ Test script to validate the default namespace functionality in the DSpaces CSV A
 Tests that CSV ingestion requests without explicit namespace use "datasets" by default.
 """
 
-import requests
-import json
-import time
 import sys
+import time
+
+import requests
 
 API_BASE_URL = "http://localhost:8001"
 

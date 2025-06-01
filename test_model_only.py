@@ -4,7 +4,6 @@ Test script to verify that the CSVIngestionRequest model uses 'datasets' as defa
 """
 
 import sys
-import json
 from pathlib import Path
 
 # Add the api directory to the Python path

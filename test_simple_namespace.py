@@ -4,7 +4,6 @@ Simple test to validate the default namespace functionality.
 """
 
 import requests
-import json
 
 API_BASE_URL = "http://localhost:8001"
 
@@ -56,7 +55,7 @@ def main():
         if response.status_code == 200:
             result = response.json()
             namespace = result.get("namespace", "NOT_FOUND")
-            print(f"✅ Ingestion successful!")
+            print("✅ Ingestion successful!")
             print(f"📁 Namespace used: {namespace}")
             
             if namespace == "datasets":
@@ -94,7 +93,7 @@ def main():
         if response.status_code == 200:
             result = response.json()
             namespace = result.get("namespace", "NOT_FOUND")
-            print(f"✅ Ingestion successful!")
+            print("✅ Ingestion successful!")
             print(f"📁 Namespace used: {namespace}")
             
             if namespace == "custom_test_namespace":
