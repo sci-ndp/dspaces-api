@@ -85,8 +85,15 @@ def list_available_datasets() -> DatasetListResponse:
         file_exists = os.path.exists(file_path)
         file_size = os.path.getsize(file_path) if file_exists else None
         
+        # Generate a unique dataset ID based on dataset type with short hash for uniqueness
+        import hashlib
+        # Create a more readable unique ID: dataset_type + short hash
+        unique_string = f"{dataset_type}_{info['description']}_{file_path}"
+        short_hash = hashlib.md5(unique_string.encode()).hexdigest()[:8]
+        dataset_id = f"{dataset_type}_{short_hash}"
+        
         dataset_info = DatasetInfo(
-            dataset_type=dataset_type,
+            dataset_id=dataset_id,
             description=info["description"],
             file_path=file_path,
             file_exists=file_exists,

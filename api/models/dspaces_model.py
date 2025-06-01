@@ -134,7 +134,7 @@ class CSVDatasetAggregateResponse(BaseModel):
 class DatasetInfo(BaseModel):
     """Information about a single dataset"""
     
-    dataset_type: str = Field(description="Dataset type identifier")
+    dataset_id: str = Field(description="Unique dataset identifier/key")
     description: str = Field(description="Human-readable description of the dataset")
     file_path: str = Field(description="Path to the CSV file")
     file_exists: bool = Field(description="Whether the file exists on disk")

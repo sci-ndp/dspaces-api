@@ -4,10 +4,10 @@ Updated test script to validate the default namespace functionality using correc
 Tests that CSV ingestion requests without explicit namespace use "datasets" by default.
 """
 
-import requests
-import json
-import time
 import sys
+import time
+
+import requests
 
 API_BASE_URL = "http://localhost:8001"
 
@@ -38,7 +38,7 @@ def test_available_datasets():
             print("✅ Available datasets:")
             if "datasets" in datasets:
                 for dataset in datasets["datasets"]:
-                    print(f"  - {dataset.get('type', 'unknown')}: {dataset.get('description', 'No description')}")
+                    print(f"  - {dataset.get('dataset_id', 'unknown')}: {dataset.get('description', 'No description')}")
                 return True
             else:
                 print("⚠️ Unexpected response format")
