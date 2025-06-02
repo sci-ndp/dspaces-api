@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Comprehensive test script for DataSpaces API filter endpoints.
-Tests Salt Lake County data filtering functionality.
+Tests generic CSV data filtering functionality with URL-based ingestion.
 """
 
 import requests
@@ -14,9 +14,10 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# API base URL
+# API configuration - update these for your dataset
 BASE_URL = "http://localhost:8000"
-NAMESPACE = "test_salt_lake"
+TEST_DATASET_TYPE = "test-csv-data"
+NAMESPACE = "test-demo"
 
 def test_api_connection():
     """Test basic API connectivity."""
@@ -36,7 +37,7 @@ def test_available_filters():
     """Test the available filters endpoint."""
     logger.info("\n--- Testing Available Filters Endpoint ---")
     try:
-        response = requests.get(f"{BASE_URL}/retrieve/salt-lake-county/{NAMESPACE}/available-filters")
+        response = requests.get(f"{BASE_URL}/retrieve/{TEST_DATASET_TYPE}/{NAMESPACE}/available-filters")
         
         if response.status_code == 200:
             data = response.json()
@@ -54,7 +55,7 @@ def test_basic_retrieval():
     """Test basic data retrieval without filters."""
     logger.info("\n--- Testing Basic Data Retrieval ---")
     try:
-        response = requests.get(f"{BASE_URL}/retrieve/salt-lake-county/{NAMESPACE}")
+        response = requests.get(f"{BASE_URL}/retrieve/{TEST_DATASET_TYPE}/{NAMESPACE}")
         
         if response.status_code == 200:
             data = response.json()
@@ -90,7 +91,7 @@ def test_query_parameter_filters():
     for i, params in enumerate(test_cases):
         logger.info(f"\nTest case {i+1}: {params}")
         try:
-            response = requests.get(f"{BASE_URL}/retrieve/salt-lake-county/{NAMESPACE}/filter", params=params)
+            response = requests.get(f"{BASE_URL}/retrieve/{TEST_DATASET_TYPE}/{NAMESPACE}/filter", params=params)
             
             if response.status_code == 200:
                 data = response.json()
@@ -153,7 +154,7 @@ def test_json_body_filters():
         logger.info(f"\nTest case {i+1}: {body}")
         try:
             response = requests.post(
-                f"{BASE_URL}/retrieve/salt-lake-county/{NAMESPACE}/filter",
+                f"{BASE_URL}/retrieve/{TEST_DATASET_TYPE}/{NAMESPACE}/filter",
                 json=body,
                 headers={"Content-Type": "application/json"}
             )
@@ -217,7 +218,7 @@ def test_aggregation_endpoint():
         logger.info(f"\nAggregation test case {i+1}: {body}")
         try:
             response = requests.post(
-                f"{BASE_URL}/retrieve/salt-lake-county/{NAMESPACE}/aggregate",
+                f"{BASE_URL}/retrieve/{TEST_DATASET_TYPE}/{NAMESPACE}/aggregate",
                 json=body,
                 headers={"Content-Type": "application/json"}
             )
@@ -272,7 +273,7 @@ def test_column_name_consistency():
     # Test original column name
     try:
         response = requests.post(
-            f"{BASE_URL}/retrieve/salt-lake-county/{NAMESPACE}/filter",
+            f"{BASE_URL}/retrieve/{TEST_DATASET_TYPE}/{NAMESPACE}/filter",
             json={"filters": {test_column: test_value}},
             headers={"Content-Type": "application/json"}
         )
@@ -291,7 +292,7 @@ def test_column_name_consistency():
     # Test cleaned column name
     try:
         response = requests.post(
-            f"{BASE_URL}/retrieve/salt-lake-county/{NAMESPACE}/filter",
+            f"{BASE_URL}/retrieve/{TEST_DATASET_TYPE}/{NAMESPACE}/filter",
             json={"filters": {cleaned_column: test_value}},
             headers={"Content-Type": "application/json"}
         )

@@ -9,16 +9,16 @@ import sys
 # Add the current directory to the path to import our showcase module
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from salt_lake_showcase import SaltLakeDataAPI
+from salt_lake_showcase import GenericCSVDataAPI
 
 
 def test_api_client():
     """Test basic API client functionality."""
-    print("🧪 Testing Salt Lake Data API Client")
+    print("🧪 Testing Generic CSV Data API Client")
     print("=" * 50)
     
     # Initialize API client
-    api = SaltLakeDataAPI()
+    api = GenericCSVDataAPI()
     
     # Test 1: Connection check
     print("\n1. Testing API connection...")
@@ -69,7 +69,7 @@ def test_api_client():
     
     print("\n" + "=" * 50)
     print("🎉 All tests completed!")
-    print("The Salt Lake Data API client is working correctly.")
+    print("The Generic CSV Data API client is working correctly.")
     print("You can now run the full showcase: python salt_lake_showcase.py")
     
     return True

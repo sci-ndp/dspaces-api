@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script to verify the generic CSV API functionality and backward compatibility.
+Test script to verify the generic CSV API functionality with URL-based data ingestion.
 """
 
 import os
@@ -12,34 +12,16 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from api.models.dspaces_model import (
     CSVDatasetAggregateRequest,
     CSVDatasetFilterRequest,
-    SaltLakeAggregateRequest,  # Backward compatibility alias
-    SaltLakeFilterRequest,  # Backward compatibility alias
 )
 
 
-def test_model_compatibility():
-    """Test that the backward compatibility aliases work correctly."""
+def test_generic_models():
+    """Test that the generic CSV models work correctly."""
     
-    print("Testing backward compatibility aliases...")
-    
-    # Test that old aliases still work
-    old_filter_request = SaltLakeFilterRequest(
-        date_from="2016-01-01",
-        date_to="2016-12-31",
-        parameter_names=["Ozone"],
-        limit=10
-    )
-    
-    old_aggregate_request = SaltLakeAggregateRequest(
-        group_by=["Parameter Name"],
-        aggregations=["mean", "max"],
-        parameter_names=["Ozone"]
-    )
-    
-    print("✓ Old Salt Lake models still work")
+    print("Testing generic CSV models...")
     
     # Test new generic models
-    new_filter_request = CSVDatasetFilterRequest(
+    filter_request = CSVDatasetFilterRequest(
         date_from="2016-01-01",
         date_to="2016-12-31",
         custom_filters={
@@ -49,7 +31,7 @@ def test_model_compatibility():
         limit=10
     )
     
-    new_aggregate_request = CSVDatasetAggregateRequest(
+    aggregate_request = CSVDatasetAggregateRequest(
         group_by=["Parameter Name"],
         aggregations=["mean", "max"],
         aggregation_column="Sample Measurement",
@@ -58,13 +40,13 @@ def test_model_compatibility():
         }
     )
     
-    print("✓ New generic models work")
+    print("✓ Generic CSV models work correctly")
     
-    # Test that they are actually the same type
-    assert type(old_filter_request) == type(new_filter_request), "Backward compatibility broken!"
-    assert type(old_aggregate_request) == type(new_aggregate_request), "Backward compatibility broken!"
+    # Test that both models are CSVDataset types
+    assert isinstance(filter_request, CSVDatasetFilterRequest), "Filter request type error"
+    assert isinstance(aggregate_request, CSVDatasetAggregateRequest), "Aggregate request type error"
     
-    print("✓ Backward compatibility verified")
+    print("✓ Model types verified")
 
 def test_custom_filters():
     """Test the new custom filters functionality."""
@@ -108,20 +90,20 @@ def test_new_api_routes():
     
     print("\nTesting new API route patterns...")
     
-    # New generic routes (examples)
+    # Generic routes for URL-based datasets (examples)
     routes = [
-        "POST /ingest/salt-lake-county",           # Backward compatible
-        "POST /ingest/air-quality",                # New dataset type
-        "POST /ingest/environmental-data",         # Another new type
+        "POST /ingest/air-quality",                # URL-based dataset ingestion
+        "POST /ingest/environmental-data",         # Another URL-based type
+        "POST /ingest/weather-stations",           # Weather data from URL
         
-        "GET /retrieve/salt-lake-county/my_ns",    # Backward compatible
-        "GET /retrieve/air-quality/my_ns",         # New dataset type
+        "GET /retrieve/air-quality/my_ns",         # Generic dataset retrieval
+        "GET /retrieve/environmental-data/my_ns",  # Any dataset type
         
-        "POST /retrieve/salt-lake-county/my_ns/filter",  # Backward compatible
-        "POST /retrieve/air-quality/my_ns/filter",       # New dataset type
+        "POST /retrieve/air-quality/my_ns/filter",       # Generic filtering
+        "POST /retrieve/environmental-data/my_ns/filter", # Works with any dataset
         
-        "POST /retrieve/salt-lake-county/my_ns/aggregate",  # Backward compatible
-        "POST /retrieve/air-quality/my_ns/aggregate",       # New dataset type
+        "POST /retrieve/air-quality/my_ns/aggregate",       # Generic aggregation
+        "POST /retrieve/environmental-data/my_ns/aggregate", # Flexible dataset types
     ]
     
     for route in routes:
@@ -132,18 +114,18 @@ if __name__ == "__main__":
     print("=" * 50)
     
     try:
-        test_model_compatibility()
+        test_generic_models()
         test_custom_filters()
         test_new_api_routes()
         
         print("\n" + "=" * 50)
         print("✅ All tests passed! Generic CSV API is working correctly.")
         print("\nKey improvements:")
-        print("• ✓ Backward compatibility maintained")
+        print("• ✓ URL-based data ingestion only")
         print("• ✓ Generic dataset type support added")  
         print("• ✓ Custom filters functionality implemented")
         print("• ✓ Configurable aggregation column added")
-        print("• ✓ Route patterns updated to be generic")
+        print("• ✓ Route patterns support any dataset type")
         
     except Exception as e:
         print(f"\n❌ Test failed: {e}")

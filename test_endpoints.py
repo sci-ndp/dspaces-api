@@ -3,12 +3,15 @@
 Test script to verify column name mapping between CSV and DataSpaces.
 """
 
+from api.helpers.file_download import get_dynamic_ingestion_path
+
+
 # First, let's examine the CSV structure and understand column cleaning
 def test_column_cleaning():
     print("=== Testing Column Name Cleaning ===")
     
     # Read the CSV header manually
-    with open("data/salt_lake_county_utah_2016.csv", "r") as f:
+    with open(get_dynamic_ingestion_path("salt_lake_county_utah"), "r") as f:
         header = f.readline().strip()
         columns = [col.strip('"') for col in header.split(',')]
     
@@ -25,7 +28,7 @@ def test_column_cleaning():
                         .replace("/", "_")
                         .replace("-", "_"))
     
-    print(f"\nCleaned columns for DataSpaces storage:")
+    print("\nCleaned columns for DataSpaces storage:")
     cleaned_columns = {}
     for i, col in enumerate(columns):
         cleaned = clean_column_name(col)
