@@ -1,15 +1,55 @@
-# Salt Lake City Air Quality Data Showcase
+# Generic CSV Data Showcase
 
-This Python script demonstrates how to work with the Salt Lake County air quality dataset through the DataSpaces API. It showcases various data analysis capabilities including filtering, aggregation, and visualization.
+This Python script demonstrates how to work with CSV datasets through the DataSpaces API using URL-based data ingestion. It showcases various data analysis capabilities including filtering, aggregation, and visualization.
 
-## Dataset Information
+## Important: URL-Based Data Ingestion Only
 
-The dataset contains hourly air quality measurements from monitoring stations in Salt Lake County, Utah for the year 2016, including:
+**This showcase now requires URL-based data ingestion.** No default datasets are included. You must ingest data from an external URL source before running the showcase.
 
-- **Nitrogen dioxide (NO2)** measurements in parts per billion (ppb)
-- **Temporal data**: Date and time of measurements
-- **Geographic data**: Latitude and longitude coordinates
-- **Metadata**: State codes, county codes, site numbers, measurement methods
+## Dataset Requirements
+
+The dataset should be a CSV file accessible via URL, containing:
+
+- **Measurement data**: Numeric columns for analysis
+- **Temporal data**: Date and time columns (if temporal analysis is desired)
+- **Geographic data**: Latitude and longitude coordinates (if geographic analysis is desired)
+- **Metadata**: Additional categorical columns for filtering and grouping
+
+## Setup Instructions
+
+### 1. Configure the Showcase
+
+Edit the configuration variables in `salt_lake_showcase.py`:
+
+```python
+NAMESPACE = "your_demo"  # Update this to your desired namespace
+DATASET_TYPE = "air-quality"  # Update this to your dataset type
+```
+
+### 2. Ingest Your Dataset
+
+Use the DataSpaces API to ingest a CSV file from a URL:
+
+```bash
+curl -X POST "http://localhost:8001/dspaces/ingest/your-dataset-type" \
+     -H "Content-Type: application/json" \
+     -d '{
+       "url": "https://your-data-source.com/data.csv",
+       "namespace": "your_namespace"
+     }'
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install -r showcase_requirements.txt
+```
+
+### 4. Run the Showcase
+
+```bash
+python salt_lake_showcase.py
+```
 
 ## Features Demonstrated
 
@@ -66,7 +106,7 @@ python -m api.main
 3. Verify data is ingested:
 ```bash
 # Check if data is available
-curl http://localhost:8000/retrieve/salt-lake-county/salt_lake_demo?limit=1
+curl http://localhost:8000/retrieve/{dataset_type}/{namespace}?limit=1
 ```
 
 ## Usage
@@ -101,11 +141,11 @@ The script will generate:
 
 The showcase demonstrates the following DataSpaces API endpoints:
 
-- `GET /retrieve/salt-lake-county/{namespace}/available-filters` - Get available filter options
-- `GET /ingest/salt-lake-county/sample` - Get sample data
-- `GET /retrieve/salt-lake-county/{namespace}` - Retrieve data with basic filtering
-- `GET /retrieve/salt-lake-county/{namespace}/filter` - Advanced data filtering
-- `POST /retrieve/salt-lake-county/{namespace}/aggregate` - Data aggregation
+- `GET /retrieve/{dataset_type}/{namespace}/available-filters` - Get available filter options
+- `GET /ingest/{dataset_type}/sample` - Get sample data
+- `GET /retrieve/{dataset_type}/{namespace}` - Retrieve data with basic filtering
+- `GET /retrieve/{dataset_type}/{namespace}/filter` - Advanced data filtering
+- `POST /retrieve/{dataset_type}/{namespace}/aggregate` - Data aggregation
 
 ## Customization
 

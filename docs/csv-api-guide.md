@@ -63,8 +63,7 @@ The Swagger UI provides:
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
 | `/health` | GET | API health check |
-| `/dspaces/ingest/{dataset_type}` | POST | Ingest CSV datasets from file |
-| `/dspaces/ingest/{dataset_type}/from-url` | POST | **🆕 Ingest CSV datasets from URL** |
+| `/dspaces/ingest/{dataset_type}/from-url` | POST | **Ingest CSV datasets from URL** |
 | `/dspaces/retrieve/{dataset_type}/{namespace}` | GET | Retrieve full datasets |
 | `/dspaces/ingest/{dataset_type}/sample` | GET | Preview CSV samples |
 | `/dspaces/retrieve/{dataset_type}/{namespace}/filter` | GET/POST | Filter data with criteria |
@@ -101,22 +100,6 @@ curl "http://localhost:8001/dspaces/ingest/csv/sample?rows=5"
 - Data quality indicators
 
 ### 2. Ingest Your Dataset
-
-#### Option A: From Local File
-
-Store your CSV data in DSpaces:
-
-```bash
-curl -X POST "http://localhost:8001/dspaces/ingest/csv" \
-     -H "Content-Type: application/json" \
-     -d '{
-       "namespace": "my_dataset",
-       "version": 0,
-       "chunk_size": 10000
-     }'
-```
-
-#### Option B: From URL (🆕 NEW!)
 
 Download and ingest CSV files directly from any accessible URL:
 
@@ -242,12 +225,15 @@ base_url = "http://localhost:8001"
 response = requests.get(f"{base_url}/health")
 print(response.json())
 
-# Ingest data from file
-ingest_data = {
-    "namespace": "sales_data",
-    "version": 0
+# 🆕 Ingest data from URL
+url_ingest_data = {
+    "url": "https://raw.githubusercontent.com/plotly/datasets/master/iris.csv",
+    "namespace": "iris_analysis",
+    "version": 1,
+    "chunk_size": 1000,
+    "filename": "iris_dataset.csv"
 }
-response = requests.post(f"{base_url}/dspaces/ingest/csv", json=ingest_data)
+response = requests.post(f"{base_url}/dspaces/ingest/research-data/from-url", json=url_ingest_data)
 result = response.json()
 print(f"Ingested {result['total_rows']} rows")
 
@@ -305,8 +291,10 @@ class DSpacesClient:
         response.raise_for_status()
         return response.json()
     
-    def ingest_csv(self, namespace: str, version: int = 0, chunk_size: int = 10000) -> Dict:
-        """Ingest CSV data into DSpaces from file"""
+    def ingest_csv_from_url(self, dataset_type: str, url: str, namespace: str, 
+                           version: int = 0, chunk_size: int = 10000, 
+                           filename: Optional[str] = None) -> Dict:
+        """Ingest CSV data directly from URL"""
         payload = {
             "namespace": namespace,
             "version": version,
