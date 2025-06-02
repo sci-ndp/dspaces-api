@@ -168,3 +168,7 @@ cython_debug/
 
 # Ignore large data files
 data/hourly_42602_2016.csv
+data/salt_lake_county_utah_2016.csv
+
+# Ignore all runtime-generated CSV files in data directory
+data/*.csv
