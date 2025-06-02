@@ -98,7 +98,7 @@ def test_available_filters_with_namespace():
 
 def test_url_ingestion_endpoint():
     """Test URL-based ingestion endpoint structure."""
-    print(f"\n8️⃣ Testing URL Ingestion Endpoint Structure...")
+    print("\n8️⃣ Testing URL Ingestion Endpoint Structure...")
     
     # Test with invalid payload to check endpoint exists and validation works
     try:

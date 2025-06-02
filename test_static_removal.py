@@ -4,10 +4,9 @@ Test script to verify static dataset ingestion has been completely removed
 and only URL-based ingestion is supported.
 """
 
-import requests
-import json
-import time
 import sys
+
+import requests
 
 # API base URL
 BASE_URL = "http://localhost:8001"

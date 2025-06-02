@@ -3,9 +3,9 @@
 Test URL-based CSV ingestion functionality 
 """
 
-import requests
-import json
 import sys
+
+import requests
 
 # Base URL for API
 BASE_URL = "http://localhost:8001"
@@ -37,7 +37,7 @@ def test_url_ingestion():
         # Check if successful
         if response.status_code == 200:
             result = response.json()
-            print(f"✅ Successfully ingested dataset from URL")
+            print("✅ Successfully ingested dataset from URL")
             print(f"  - Total rows: {result.get('total_rows')}")
             print(f"  - Total columns: {result.get('total_columns')}")
             print(f"  - Columns: {', '.join(result.get('columns', []))}")
@@ -67,7 +67,7 @@ def test_data_retrieval(namespace):
         if response.status_code == 200:
             result = response.json()
             row_count = len(result.get('data', []))
-            print(f"✅ Successfully retrieved dataset")
+            print("✅ Successfully retrieved dataset")
             print(f"  - Retrieved {row_count} rows")
             return True, result
         else:

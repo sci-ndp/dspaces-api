@@ -642,7 +642,7 @@ def check_and_ingest_data():
     print("   with JSON data: url and namespace")
     print("\n4. Update DATASET_TYPE and NAMESPACE variables in this script")
     print("5. Then run this showcase again")
-    print(f"\nCurrent configuration:")
+    print("\nCurrent configuration:")
     print(f"   Dataset Type: {api.dataset_type}")
     print(f"   Namespace: {api.namespace}")
     

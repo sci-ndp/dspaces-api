@@ -5,8 +5,6 @@ Tests generic CSV data filtering functionality with URL-based ingestion.
 """
 
 import requests
-import json
-import pandas as pd
 import sys
 import logging
 
