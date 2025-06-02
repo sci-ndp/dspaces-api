@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-Salt Lake City Air Quality Data Showcase
+Generic CSV Data Showcase (Example with Air Quality Data)
 
-This script demonstrates how to work with the Salt Lake County air quality dataset
-through the DataSpaces API. It includes examples of data retrieval, filtering,
-aggregation, and visualization of air pollution measurements.
+This script demonstrates how to work with CSV datasets through the DataSpaces API
+using URL-based data ingestion. It includes examples of data retrieval, filtering,
+aggregation, and visualization.
 
-Dataset: Salt Lake County, Utah air quality measurements for 2016
+Example Dataset: Air quality measurements (requires URL-based ingestion)
 Parameters: Nitrogen dioxide (NO2) and other air pollutants
 Temporal Resolution: Hourly measurements
-Geographic Coverage: Salt Lake County monitoring stations
+Geographic Coverage: Monitoring stations
 
 Author: DataSpaces API Demo
 Date: 2025
@@ -24,32 +24,42 @@ Date: 2025
         It is expected to be at `http://localhost:8001` by default (see `BASE_URL` below).
         You can typically start the server with `python -m api.main` from the project root,
         or using `docker-compose up -d` if Docker is configured.
-    *   **Data Ingestion:** The Salt Lake County air quality data must be ingested into
-        DataSpaces under the namespace `salt_lake_demo` (see `NAMESPACE` below).
-        You can use the `ingest_salt_lake_data.py` script for this:
-        `python ingest_salt_lake_data.py`
-        This script (`ingest_salt_lake_data.py`) will load the data from the
-        `data/salt_lake_county_utah_2016.csv` file into the API.
+    *   **Data Ingestion:** A CSV dataset must be ingested into DataSpaces from a URL
+        under your chosen namespace (see `NAMESPACE` below).
+        
+        IMPORTANT: This showcase now requires URL-based data ingestion only.
+        No default datasets are included. You must ingest data from an external URL first:
+        
+        Example ingestion:
+        ```
+        curl -X POST "http://localhost:8001/dspaces/ingest/air-quality" \
+             -H "Content-Type: application/json" \
+             -d '{
+               "url": "https://your-data-source.com/air-quality.csv",
+               "namespace": "your_demo"
+             }'
+        ```
 
-2.  **Execution:**
+2.  **Configuration:**
+    *   Update the `DATASET_TYPE` and `NAMESPACE` variables below to match your ingested dataset.
+    *   Ensure your CSV data has appropriate columns for the analysis methods used.
+
+3.  **Execution:**
     *   Once the prerequisites are met, run this script from your terminal:
         `python salt_lake_showcase.py`
 
-3.  **Functionality & Output:**
+4.  **Functionality & Output:**
     *   The script will first check the API connection and data availability.
-    *   It will then perform several analyses on the Salt Lake County air quality data:
+    *   It will then perform several analyses on your CSV dataset:
         *   **Dataset Exploration:** Shows an overview of the dataset, including date ranges,
           available parameters, geographic bounds, and a sample of the data.
-        *   **Temporal Pattern Analysis:** Analyzes and visualizes hourly and daily pollution
-          patterns for January 2016. Generates plots and prints insights.
-        *   **Seasonal Trend Analysis:** Analyzes and visualizes monthly pollution trends
-          for the first half of 2016. Generates plots and prints insights.
+        *   **Temporal Pattern Analysis:** Analyzes and visualizes hourly and daily patterns.
+        *   **Seasonal Trend Analysis:** Analyzes and visualizes monthly trends.
         *   **Geographic Distribution Analysis:** Visualizes the geographic distribution of
-          monitoring stations and average pollution levels. Generates plots and prints insights.
-        *   **Comprehensive Pollution Statistics:** Calculates and displays detailed statistics
-          (mean, min, max, std, median, count) for pollution parameters. Generates plots.
+          monitoring stations and values (if geographic columns are present).
+        *   **Comprehensive Statistics:** Calculates and displays detailed statistics.
         *   **Data Filtering Demonstrations:** Shows examples of how to use the API's
-          filtering capabilities based on date, measurement values, and geography.
+          filtering capabilities.
     *   Output will be printed to the console, and `matplotlib` plot windows will appear
         to display visualizations. Close each plot window to proceed to the next part of the showcase.
 
@@ -70,21 +80,23 @@ plt.rcParams['figure.figsize'] = (12, 8)
 # API Configuration
 BASE_URL = "http://localhost:8001"
 API_PREFIX = "/dspaces"
-NAMESPACE = "salt_lake_demo"
+NAMESPACE = "your_demo"  # Update this to match your ingested dataset namespace
+DATASET_TYPE = "air-quality"  # Update this to match your ingested dataset type
 VERSION = 0
 
 
-class SaltLakeDataAPI:
+class GenericCSVDataAPI:
     """
-    A client class for interacting with the Salt Lake County air quality data API.
+    A client class for interacting with CSV datasets via the DataSpaces API.
     
     This class provides methods to retrieve, filter, aggregate, and analyze
-    the air quality dataset stored in DataSpaces.
+    CSV datasets stored in DataSpaces through URL-based ingestion.
     """
     
-    def __init__(self, base_url: str = BASE_URL, namespace: str = NAMESPACE):
+    def __init__(self, base_url: str = BASE_URL, namespace: str = NAMESPACE, dataset_type: str = DATASET_TYPE):
         self.base_url = base_url
         self.namespace = namespace
+        self.dataset_type = dataset_type
         self.session = requests.Session()
     
     def check_connection(self) -> bool:
@@ -104,7 +116,7 @@ class SaltLakeDataAPI:
     def get_available_filters(self, version: int = VERSION) -> Optional[Dict]:
         """Get available filter values for the dataset."""
         try:
-            url = f"{self.base_url}/dspaces/retrieve/salt-lake-county/{self.namespace}/available-filters"
+            url = f"{self.base_url}/dspaces/retrieve/{self.dataset_type}/{self.namespace}/available-filters"
             response = self.session.get(url, params={"version": version})
             
             if response.status_code == 200:
@@ -119,7 +131,7 @@ class SaltLakeDataAPI:
     def get_sample_data(self, rows: int = 100) -> Optional[Dict]:
         """Get a sample of the raw CSV data."""
         try:
-            response = self.session.get(f"{self.base_url}/dspaces/ingest/salt-lake-county/sample", 
+            response = self.session.get(f"{self.base_url}/dspaces/ingest/{self.dataset_type}/sample", 
                                       params={"rows": rows})
             if response.status_code == 200:
                 return response.json()
@@ -140,7 +152,7 @@ class SaltLakeDataAPI:
             if columns:
                 params["columns"] = ",".join(columns)
             
-            response = self.session.get(f"{self.base_url}/dspaces/retrieve/salt-lake-county/{self.namespace}", 
+            response = self.session.get(f"{self.base_url}/dspaces/retrieve/{self.dataset_type}/{self.namespace}", 
                                       params=params)
             if response.status_code == 200:
                 return response.json()
@@ -155,7 +167,7 @@ class SaltLakeDataAPI:
         """Filter data using API."""
         try:
             # Use GET method for filtering as per the API design
-            url = f"{self.base_url}/dspaces/retrieve/salt-lake-county/{self.namespace}/filter"
+            url = f"{self.base_url}/dspaces/retrieve/{self.dataset_type}/{self.namespace}/filter"
             response = self.session.get(url, params={**filter_params, "version": version})
             
             if response.status_code == 200:
@@ -170,7 +182,7 @@ class SaltLakeDataAPI:
     def aggregate_data(self, aggregate_params: Dict, version: int = VERSION) -> Optional[Dict]:
         """Aggregate data using API."""
         try:
-            url = f"{self.base_url}/dspaces/retrieve/salt-lake-county/{self.namespace}/aggregate"
+            url = f"{self.base_url}/dspaces/retrieve/{self.dataset_type}/{self.namespace}/aggregate"
             response = self.session.post(url, 
                                        json=aggregate_params,
                                        params={"version": version})
@@ -185,21 +197,21 @@ class SaltLakeDataAPI:
             return None
 
 
-class SaltLakeDataAnalyzer:
+class GenericCSVDataAnalyzer:
     """
-    A class for analyzing Salt Lake County air quality data.
+    A class for analyzing CSV datasets via the DataSpaces API.
     
     Provides methods for exploratory data analysis, visualization,
-    and statistical analysis of air pollution measurements.
+    and statistical analysis of CSV data from URL-based ingestion.
     """
     
-    def __init__(self, api_client: SaltLakeDataAPI):
+    def __init__(self, api_client: GenericCSVDataAPI):
         self.api = api_client
         
     def explore_dataset_structure(self) -> None:
         """Explore the basic structure and available filters of the dataset."""
         print("=" * 60)
-        print("SALT LAKE COUNTY AIR QUALITY DATASET EXPLORATION")
+        print("CSV DATASET EXPLORATION")
         print("=" * 60)
         
         # Get available filters
@@ -543,7 +555,7 @@ def demonstrate_data_filtering():
     print("DATA FILTERING DEMONSTRATIONS")
     print("=" * 60)
     
-    api = SaltLakeDataAPI()
+    api = GenericCSVDataAPI()
     
     # Example 1: Date range filtering
     print("\n🗓️  Example 1: Filtering by date range (First week of January 2016)")
@@ -599,7 +611,7 @@ def check_and_ingest_data():
     """Check if data is available and provide instructions for ingestion if not."""
     print("🔍 Checking data availability...")
     
-    api = SaltLakeDataAPI()
+    api = GenericCSVDataAPI()
     
     # Check if API is accessible
     if not api.check_connection():
@@ -611,39 +623,46 @@ def check_and_ingest_data():
     # Check if data is available using retrieve_data
     retrieved_sample = api.retrieve_data(limit=1)
     if retrieved_sample and 'data' in retrieved_sample and len(retrieved_sample['data']) > 0:
-        print("✅ Salt Lake data is available and ready for analysis!")
+        print("✅ CSV data is available and ready for analysis!")
         return True
     
     # Data not available - provide ingestion instructions
-    print("⚠️  Salt Lake data not found in DataSpaces")
-    print("\n📝 To ingest the data, follow these steps:")
-    print("1. Ensure you have the Salt Lake County CSV data file")
+    print("⚠️  CSV data not found in DataSpaces")
+    print("\n📝 To ingest data, you must use URL-based ingestion:")
+    print("1. Prepare a publicly accessible CSV file URL")
     print("2. Use the ingestion endpoint to load the data:")
-    print(f"   curl -X POST {BASE_URL}/ingest/salt-lake-county")
-    print("   -F 'namespace={NAMESPACE}'")
-    print("   -F 'file=@data/salt_lake_county_utah_2016.csv'")
+    print(f"   curl -X POST {BASE_URL}/dspaces/ingest/{api.dataset_type} \\")
+    print("        -H 'Content-Type: application/json' \\")
+    print("        -d '{")
+    print('              "url": "https://your-data-source.com/data.csv",')
+    print(f'              "namespace": "{api.namespace}"')
+    print("           }'")
     print("\n3. Or use the API directly:")
-    print("   POST /ingest/salt-lake-county")
-    print("   with form data: namespace and CSV file")
-    print("\n4. Then run this showcase again")
+    print(f"   POST /dspaces/ingest/{api.dataset_type}")
+    print("   with JSON data: url and namespace")
+    print("\n4. Update DATASET_TYPE and NAMESPACE variables in this script")
+    print("5. Then run this showcase again")
+    print(f"\nCurrent configuration:")
+    print(f"   Dataset Type: {api.dataset_type}")
+    print(f"   Namespace: {api.namespace}")
     
     return False
 
 def main():
     """
-    Main function to run the Salt Lake data showcase.
+    Main function to run the CSV data showcase.
 
     This function orchestrates the entire demonstration, from checking prerequisites
-    to running various data analysis and visualization routines.
+    to running various data analysis and visualization routines on URL-ingested CSV data.
     """
-    print("🌟 SALT LAKE COUNTY AIR QUALITY DATA SHOWCASE 🌟")
+    print("🌟 GENERIC CSV DATA SHOWCASE 🌟")
     print("=" * 60)
     print("This demonstration showcases the capabilities of the DataSpaces API")
-    print("for analyzing Salt Lake County air quality data from 2016.")
+    print("for analyzing CSV datasets ingested from URLs.")
     print("=" * 60)
     
     # Initialize API client
-    api = SaltLakeDataAPI()
+    api = GenericCSVDataAPI()
     
     # Check connection
     if not api.check_connection():
@@ -655,7 +674,7 @@ def main():
         return
     
     # Initialize analyzer
-    analyzer = SaltLakeDataAnalyzer(api)
+    analyzer = GenericCSVDataAnalyzer(api)
     
     try:
         # 1. Explore dataset structure

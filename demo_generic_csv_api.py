@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Demonstration of the Generic CSV API usage.
-Shows both backward compatibility and new features.
+Shows URL-based data ingestion and flexible filtering features.
 """
 
 
@@ -14,49 +14,50 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from api.models.dspaces_model import (
     CSVDatasetAggregateRequest,
     CSVDatasetFilterRequest,
-    SaltLakeAggregateRequest,  # Backward compatibility
-    SaltLakeFilterRequest,  # Backward compatibility
 )
 
 
-def demo_backward_compatibility():
-    """Demonstrate that existing Salt Lake County code still works."""
+def demo_generic_csv_functionality():
+    """Demonstrate the Generic CSV API functionality."""
     
-    print("🔄 Backward Compatibility Demo")
+    print("🔄 Generic CSV API Demo")
     print("=" * 50)
     
-    # Existing Salt Lake County filter request (unchanged)
-    old_filter = SaltLakeFilterRequest(
+    # Generic CSV filter request using URL-ingested data
+    filter_request = CSVDatasetFilterRequest(
         date_from="2016-01-01",
         date_to="2016-12-31",
-        parameter_names=["Ozone"],
-        state_codes=["49"],  # Utah
-        measurement_min=0.0,
-        measurement_max=0.1,
+        custom_filters={
+            "Parameter Name": ["Ozone"],
+            "State Code": "49",  # Utah
+            "Sample Measurement": {"min": 0.0, "max": 0.1}
+        },
         limit=100
     )
     
-    print("✅ Old Salt Lake Filter Request:")
-    print(f"   Date Range: {old_filter.date_from} to {old_filter.date_to}")
-    print(f"   Parameters: {old_filter.parameter_names}")
-    print(f"   State Codes: {old_filter.state_codes}")
-    print(f"   Measurement Range: {old_filter.measurement_min} - {old_filter.measurement_max}")
+    print("✅ Generic CSV Filter Request:")
+    print(f"   Date Range: {filter_request.date_from} to {filter_request.date_to}")
+    print(f"   Custom Filters: {filter_request.custom_filters}")
+    print(f"   Limit: {filter_request.limit}")
     
-    # Existing Salt Lake County aggregate request (unchanged)
-    old_aggregate = SaltLakeAggregateRequest(
+    # Generic CSV aggregate request
+    aggregate_request = CSVDatasetAggregateRequest(
         group_by=["Parameter Name", "County Code"],
         aggregations=["mean", "max", "min", "count"],
-        parameter_names=["Ozone", "PM2.5"]
+        custom_filters={"Parameter Name": ["Ozone", "PM2.5"]},
+        aggregation_column="Sample Measurement"
     )
     
     print("\n✅ Old Salt Lake Aggregate Request:")
     print(f"   Group By: {old_aggregate.group_by}")
-    print(f"   Aggregations: {old_aggregate.aggregations}")
-    print(f"   Parameters: {old_aggregate.parameter_names}")
     
-    print("\n📡 API Calls (still work exactly the same):")
-    print("   POST /retrieve/salt-lake-county/my_namespace/filter")
-    print("   POST /retrieve/salt-lake-county/my_namespace/aggregate")
+    print(f"   Aggregations: {aggregate_request.aggregations}")
+    print(f"   Custom Filters: {aggregate_request.custom_filters}")
+    print(f"   Aggregation Column: {aggregate_request.aggregation_column}")
+    
+    print("\n📡 Generic API Calls (URL-based datasets only):")
+    print("   POST /retrieve/{dataset_type}/my_namespace/filter")
+    print("   POST /retrieve/{dataset_type}/my_namespace/aggregate")
     
 def demo_new_generic_features():
     """Demonstrate the new generic CSV API features."""
@@ -166,19 +167,19 @@ def demo_api_endpoints():
     print()
     
     endpoints = [
-        "POST /ingest/salt-lake-county              # Backward compatible",
+        "POST /ingest/{dataset_type}                  # Generic ingestion",
         "POST /ingest/air-quality                   # New dataset type",
         "POST /ingest/weather-stations              # Another dataset",
         "",
-        "GET  /retrieve/salt-lake-county/ns/filter  # Backward compatible", 
+        "GET  /retrieve/{dataset_type}/{namespace}/filter  # Generic filtering", 
         "POST /retrieve/air-quality/ns/filter       # New generic filtering",
         "POST /retrieve/weather-stations/ns/filter  # Works with any dataset",
         "",
-        "POST /retrieve/salt-lake-county/ns/aggregate  # Backward compatible",
+        "POST /retrieve/{dataset_type}/{namespace}/aggregate  # Generic aggregation",
         "POST /retrieve/air-quality/ns/aggregate       # New generic aggregation", 
         "POST /retrieve/environmental-data/ns/aggregate # Configurable agg column",
         "",
-        "GET  /ingest/salt-lake-county/sample          # Backward compatible",
+        "GET  /ingest/{dataset_type}/sample          # Generic sample data",
         "GET  /ingest/air-quality/sample               # New dataset sample",
         "GET  /ingest/weather-stations/sample          # Any dataset sample"
     ]
@@ -190,33 +191,31 @@ def demo_api_endpoints():
             print()
 
 def demo_migration_path():
-    """Show how to migrate from old API to new API."""
+    """Show how to use the generic CSV API with URL-based datasets."""
     
-    print("\n📈 Migration Path from Old to New API")
+    print("\n📈 URL-Based Dataset Usage")
     print("=" * 50)
     
-    print("🔄 STEP 1: No changes needed - Backward compatibility")
-    print("   Your existing Salt Lake County code works unchanged!")
+    print("🔄 STEP 1: Ingest data from URLs only")
+    print("   All datasets must be ingested from external URLs!")
     print()
     
-    print("🆕 STEP 2: Optionally adopt new features when beneficial")
+    print("🆕 STEP 2: Use generic CSV API for all operations")
     print()
     
-    # Show equivalent old vs new
-    print("   Old Salt Lake specific approach:")
-    old_way = """
-   filter_request = SaltLakeFilterRequest(
-       parameter_names=["Ozone"],
-       state_codes=["49"], 
-       county_codes=["035"],
-       measurement_min=0.0,
-       measurement_max=0.1
-   )
-   # POST /retrieve/salt-lake-county/my_ns/filter
+    # Show the URL-based approach
+    print("   URL-based data ingestion:")
+    url_ingestion = """
+   # First ingest data from URL
+   POST /ingest/{dataset_type}
+   {
+       "url": "https://example.com/data.csv",
+       "namespace": "my_namespace"
+   }
    """
-    print(old_way)
+    print(url_ingestion)
     
-    print("   New generic approach (more flexible):")
+    print("   Generic filtering approach:")
     new_way = """
    filter_request = CSVDatasetFilterRequest(
        custom_filters={
@@ -224,25 +223,24 @@ def demo_migration_path():
            "State Code": "49",
            "County Code": ["035", "049"],            # Multiple counties  
            "Sample Measurement": {"min": 0.0, "max": 0.1},
-           "Elevation": {"min": 1000, "max": 2000"} # New filter types!
+           "Elevation": {"min": 1000, "max": 2000"} # Flexible filter types
        }
    )
-   # POST /retrieve/salt-lake-county/my_ns/filter  (same endpoint)
-   # POST /retrieve/air-quality/my_ns/filter       (new dataset types)
+   # POST /retrieve/{dataset_type}/my_namespace/filter
    """
     print(new_way)
     
-    print("🎯 STEP 3: Adopt new dataset types when expanding")
+    print("🎯 STEP 3: Support multiple dataset types from URLs")
     expansion_example = """
-   # Add air quality data from other states
+   # Add air quality data from external source
    POST /ingest/air-quality
    POST /retrieve/air-quality/california_data/filter
    
-   # Add weather monitoring  
+   # Add weather monitoring from URL
    POST /ingest/weather-stations
    POST /retrieve/weather-stations/noaa_data/aggregate
    
-   # Add environmental sensors
+   # Add environmental sensors from URL
    POST /ingest/environmental-monitoring  
    POST /retrieve/environmental-monitoring/sensor_net/filter
    """
@@ -251,11 +249,11 @@ def demo_migration_path():
 if __name__ == "__main__":
     print("🚀 Generic CSV API Demonstration")
     print("=" * 60)
-    print("Showing backward compatibility + powerful new features")
+    print("URL-based data ingestion with flexible filtering")
     print("=" * 60)
     
     try:
-        demo_backward_compatibility()
+        demo_generic_csv_functionality()
         demo_new_generic_features() 
         demo_api_endpoints()
         demo_migration_path()
@@ -263,12 +261,12 @@ if __name__ == "__main__":
         print("\n" + "=" * 60)
         print("✅ Generic CSV API Successfully Demonstrated!")
         print("\n🎉 Key Benefits:")
-        print("   • 100% backward compatible with existing Salt Lake County code")
+        print("   • URL-based data ingestion only (no default datasets)")
         print("   • Flexible custom filters support multiple data types")  
         print("   • Configurable aggregation columns (not hardcoded)")
-        print("   • Support for unlimited dataset types")
+        print("   • Support for unlimited dataset types from URLs")
         print("   • Clean, extensible architecture")
-        print("   • Zero breaking changes for existing users")
+        print("   • No embedded or default datasets")
         
     except Exception as e:
         print(f"\n❌ Demo failed: {e}")
