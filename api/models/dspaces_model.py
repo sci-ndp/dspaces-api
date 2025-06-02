@@ -148,6 +148,16 @@ class DatasetListResponse(BaseModel):
     total_datasets: int = Field(description="Total number of available datasets")
     api_endpoints: dict = Field(description="Related API endpoints for working with datasets")
 
+# Request model for ingesting CSV data from a URL
+class CSVIngestionFromURLRequest(BaseModel):
+    """Request model for ingesting CSV data from a URL"""
+    
+    url: str = Field(title="CSV URL", description="URL to download the CSV file from")
+    namespace: str = Field(default="datasets", title="Namespace", description="The namespace to store the CSV data under")
+    version: int = Field(default=0, title="Version", description="Version number for the stored objects", ge=0)
+    chunk_size: int = Field(default=10000, title="Chunk Size", description="Number of rows to process at once", gt=0)
+    filename: Optional[str] = Field(default=None, title="Filename", description="Optional custom filename for the downloaded file (will be auto-generated if not provided)")
+
 # Backward compatibility aliases for Salt Lake County
 SaltLakeFilterRequest = CSVDatasetFilterRequest
 SaltLakeFilterResponse = CSVDatasetFilterResponse
