@@ -1,29 +1,43 @@
 #!/usr/bin/env python3
 """
-Script to ingest Salt Lake County data into DataSpaces
+Script to demonstrate URL-based CSV data ingestion into DataSpaces
 """
 
 import requests
 
 
-def ingest_salt_lake_data():
-    """Ingest the Salt Lake County data into DataSpaces using the API."""
+def ingest_csv_data_from_url():
+    """Ingest CSV data into DataSpaces using URL-based ingestion."""
     
     api_url = "http://localhost:8001"
-    ingest_endpoint = f"{api_url}/dspaces/ingest/salt-lake-county"
     
-    # Request payload
+    # Example configuration - UPDATE THESE VALUES
+    dataset_type = "air-quality"  # Change this to your dataset type
+    namespace = "demo_namespace"   # Change this to your namespace
+    csv_url = "https://example.com/data.csv"  # CHANGE THIS to your actual CSV URL
+    
+    ingest_endpoint = f"{api_url}/dspaces/ingest/{dataset_type}"
+    
+    # Request payload for URL-based ingestion
     ingest_request = {
-        "namespace": "salt_lake_demo",
+        "url": csv_url,
+        "namespace": namespace,
         "version": 0,
         "chunk_size": 10000
     }
     
-    print("🔄 Starting Salt Lake County data ingestion...")
+    print("🔄 Starting URL-based CSV data ingestion...")
     print(f"API URL: {api_url}")
-    print(f"Namespace: {ingest_request['namespace']}")
+    print(f"Dataset Type: {dataset_type}")
+    print(f"CSV URL: {csv_url}")
+    print(f"Namespace: {namespace}")
     print(f"Version: {ingest_request['version']}")
     print("-" * 50)
+    
+    if csv_url == "https://example.com/data.csv":
+        print("❌ ERROR: You must update the csv_url variable with a real CSV file URL!")
+        print("Edit this script and change the csv_url variable to point to your actual CSV data.")
+        return False
     
     try:
         # Make the ingestion request
@@ -65,8 +79,9 @@ def ingest_salt_lake_data():
             if len(stored_objects) > 5:
                 print(f"   ... and {len(stored_objects) - 5} more columns")
             
-            print("\n🎉 Salt Lake County data is now available in DataSpaces!")
+            print("\n🎉 CSV data is now available in DataSpaces!")
             print("You can now run the showcase: python salt_lake_showcase.py")
+            print("(Make sure to update the DATASET_TYPE and NAMESPACE variables in that script)")
             
             return True
             
@@ -91,5 +106,5 @@ def ingest_salt_lake_data():
         return False
 
 if __name__ == "__main__":
-    success = ingest_salt_lake_data()
+    success = ingest_csv_data_from_url()
     exit(0 if success else 1)

@@ -157,9 +157,3 @@ class CSVIngestionFromURLRequest(BaseModel):
     version: int = Field(default=0, title="Version", description="Version number for the stored objects", ge=0)
     chunk_size: int = Field(default=10000, title="Chunk Size", description="Number of rows to process at once", gt=0)
     filename: Optional[str] = Field(default=None, title="Filename", description="Optional custom filename for the downloaded file (will be auto-generated if not provided)")
-
-# Backward compatibility aliases for Salt Lake County
-SaltLakeFilterRequest = CSVDatasetFilterRequest
-SaltLakeFilterResponse = CSVDatasetFilterResponse
-SaltLakeAggregateRequest = CSVDatasetAggregateRequest
-SaltLakeAggregateResponse = CSVDatasetAggregateResponse

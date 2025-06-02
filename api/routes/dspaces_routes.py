@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 from typing import Annotated, Optional
 
 import pandas as pd  # type: ignore
@@ -15,19 +14,17 @@ from api.helpers.file_download import (
 )
 from api.models.dspaces_model import (
     BoundingBox,
+    CSVDatasetAggregateRequest,
+    CSVDatasetAggregateResponse,
+    CSVDatasetFilterRequest,
+    CSVDatasetFilterResponse,
     CSVIngestionFromURLRequest,
-    CSVIngestionRequest,
     CSVIngestionResponse,
     DatasetInfo,
     DatasetListResponse,
     DSObject,
     DSRegHandle,
     RequestList,
-    # Backward compatibility aliases
-    SaltLakeAggregateRequest,
-    SaltLakeAggregateResponse,
-    SaltLakeFilterRequest,
-    SaltLakeFilterResponse,
 )
 from api.services.dspaces_services.filter_csv_data import (
     _create_column_mapping,
@@ -47,25 +44,6 @@ from api.services.dspaces_services.put_dspaces_obj import put_dspaces_obj
 from api.services.dspaces_services.reg_dspaces import reg_dspaces
 
 router = APIRouter()
-
-def get_dataset_mapping() -> dict:
-    """
-    Get the mapping of dataset types to their CSV file paths and descriptions.
-    
-    Returns:
-        Dict mapping dataset_type to a dict with 'file_path' and 'description'
-    """
-    return {
-        "salt-lake-county": {
-            "file_path": "/data/salt_lake_county_utah_2016.csv",
-            "description": "Salt Lake County air quality monitoring data for 2016"
-        },
-        "air-quality": {
-            "file_path": "/data/hourly_42602_2016.csv", 
-            "description": "Hourly air quality measurements for station 42602 in 2016"
-        }
-        # Add more dataset types as needed
-    }
 
 @router.get("/datasets",
             status_code=200,
@@ -88,29 +66,7 @@ def list_available_datasets() -> DatasetListResponse:
     from api.models.dspaces_model import BoundingBox, Interval
     from api.services.dspaces_services.get_dspaces_obj import get_dspaces_obj
     
-    dataset_mapping = get_dataset_mapping()
     datasets = []
-    
-    # Add static/predefined datasets from mapping
-    for dataset_type, info in dataset_mapping.items():
-        file_path = info["file_path"]
-        file_exists = os.path.exists(file_path)
-        file_size = os.path.getsize(file_path) if file_exists else None
-        
-        # Generate a unique dataset ID based on dataset type with short hash for uniqueness
-        unique_string = f"{dataset_type}_{info['description']}_{file_path}"
-        short_hash = hashlib.md5(unique_string.encode()).hexdigest()[:8]
-        dataset_id = f"{dataset_type}_{short_hash}"
-        
-        dataset_info = DatasetInfo(
-            dataset_id=dataset_id,
-            description=info["description"],
-            file_path=file_path,
-            file_exists=file_exists,
-            file_size_bytes=file_size,
-            sample_endpoint=f"/dspaces/ingest/{dataset_type}/sample"
-        )
-        datasets.append(dataset_info)
     
     # Add dynamically ingested datasets from DataSpaces
     try:
@@ -127,16 +83,6 @@ def list_available_datasets() -> DatasetListResponse:
             # For each namespace with metadata, try to retrieve the metadata
             for namespace in namespaces_with_metadata:
                 try:
-                    # Skip if this namespace corresponds to a static dataset
-                    skip_namespace = False
-                    for static_type in dataset_mapping.keys():
-                        if namespace.endswith(static_type.replace("-", "_")) or static_type.replace("-", "_") in namespace:
-                            skip_namespace = True
-                            break
-                    
-                    if skip_namespace:
-                        continue
-                    
                     # Retrieve the ingestion metadata
                     metadata_box = BoundingBox(bounds=[Interval(start=0, span=1000000)])  # Large enough for metadata
                     metadata_obj = get_dspaces_obj(namespace, "__ingestion_metadata__", 0, metadata_box)
@@ -215,7 +161,7 @@ def list_available_datasets() -> DatasetListResponse:
                     continue
                     
     except Exception as e:
-        # If DataSpaces query fails, just continue with static datasets
+        # If DataSpaces query fails, return empty list since we only support URL ingestion
         print(f"Warning: Could not query DataSpaces for ingested datasets: {str(e)}")
         pass
     
@@ -685,103 +631,6 @@ def ds_reg(
     except DSConnectionError:
         raise HTTPException(status_code=500, detail="backend server connection failed")
 
-@router.post("/ingest/{dataset_type}",
-             status_code=200,
-             summary="Ingest CSV dataset into DataSpaces",
-             response_model=CSVIngestionResponse
-)
-def ingest_csv_dataset(
-    dataset_type: Annotated[
-        str,
-        Path(
-            title="Dataset type",
-            description="Type/identifier of the CSV dataset (e.g., 'salt-lake-county', 'air-quality', etc.)",
-            max_length=96
-        )
-    ],
-    request: Annotated[
-        CSVIngestionRequest,
-        Body(
-            title="Ingestion request",
-            description="Parameters for CSV ingestion"
-        )
-    ]
-) -> CSVIngestionResponse:
-    """
-    Ingest the Salt Lake County Utah 2016 air quality data into DataSpaces.
-    
-    This endpoint specifically handles the salt_lake_county_utah_2016.csv file
-    located in the data directory and stores each column as a separate object
-    in DataSpaces for efficient querying and analysis.
-    
-    Parameters
-    ----------
-    - **namespace**: the namespace to store the data under
-    - **version**: version number for the stored objects (default: 0)
-    - **chunk_size**: number of rows to process at once for large files (default: 10000)
-    
-    Returns
-    -------
-    A summary of the ingestion process including:
-    - **file_path**: path to the ingested CSV file
-    - **total_rows**: number of rows processed
-    - **total_columns**: number of columns processed
-    - **columns**: list of column names
-    - **namespace**: namespace used for storage
-    - **version**: version number used
-    - **stored_objects**: detailed information about each stored column
-    - **success**: whether the ingestion was successful
-    - **message**: summary message
-    
-    Raises
-    ------
-    **HTTPException** if the file is not found or ingestion fails
-    """
-    
-    # Path to the Salt Lake County CSV file
-    csv_file_path = "data/salt_lake_county_utah_2016.csv"
-    
-    # Check if file exists
-    if not os.path.exists(csv_file_path):
-        raise HTTPException(
-            status_code=404, 
-            detail=f"Salt Lake County CSV file not found at {csv_file_path}"
-        )
-    
-    try:
-        # Perform the ingestion
-        ingestion_result = ingest_csv_to_dspaces(
-            csv_file_path=csv_file_path,
-            namespace=request.namespace,
-            version=request.version,
-            chunk_size=request.chunk_size
-        )
-        
-        # Count successful storage operations
-        successful_objects = len([k for k, v in ingestion_result["stored_objects"].items() if "error" not in v])
-        total_objects = len(ingestion_result["stored_objects"])
-        
-        response = CSVIngestionResponse(
-            file_path=ingestion_result["file_path"],
-            total_rows=ingestion_result["total_rows"],
-            total_columns=ingestion_result["total_columns"],
-            columns=ingestion_result["columns"],
-            namespace=ingestion_result["namespace"],
-            version=ingestion_result["version"],
-            stored_objects=ingestion_result["stored_objects"],
-            success=successful_objects == total_objects,
-            message=f"Successfully ingested {successful_objects} out of {total_objects} columns from {dataset_type} dataset"
-        )
-        
-        return response
-        
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
-
 
 @router.post("/ingest/{dataset_type}/from-url",
              status_code=200,
@@ -959,9 +808,9 @@ def retrieve_csv_dataset(
     
     Examples
     --------
-    - Get all data: `/retrieve/salt-lake-county/my_namespace`
-    - Get specific columns: `/retrieve/salt-lake-county/my_namespace?columns=State Code,County Code,Latitude,Longitude`
-    - Get limited rows with specific columns: `/retrieve/salt-lake-county/my_namespace?limit=100&columns=Parameter Name,Sample Measurement`
+    - Get all data: `/retrieve/air-quality/my_namespace`
+    - Get specific columns: `/retrieve/air-quality/my_namespace?columns=State Code,County Code,Latitude,Longitude`
+    - Get limited rows with specific columns: `/retrieve/environmental-data/my_namespace?limit=100&columns=Parameter Name,Sample Measurement`
     
     Raises
     ------
@@ -1040,7 +889,10 @@ def get_csv_dataset_sample(
     ] = 10
 ) -> dict:
     """
-    Get a sample of the Salt Lake County CSV data before ingestion.
+    Get a sample of the CSV dataset data.
+    
+    Works with dynamically ingested datasets from URLs.
+    Retrieves sample data from DataSpaces storage for datasets that have been ingested from URLs.
     
     Parameters
     ----------
@@ -1050,80 +902,162 @@ def get_csv_dataset_sample(
     -------
     A dictionary containing:
     - **sample_data**: the first N rows of the CSV as a list of records
-    - **total_rows**: total number of rows in the file
-    - **total_columns**: total number of columns in the file
+    - **total_rows**: total number of rows in the file/dataset
+    - **total_columns**: total number of columns in the file/dataset
     - **columns**: list of column names with their data types
-    - **file_info**: information about the CSV file
+    - **file_info**: information about the CSV file or ingested dataset
     
     Raises
     ------
-    **HTTPException** if the file is not found or cannot be read
+    **HTTPException** if the dataset is not found or cannot be read
     """
     
-    # Map dataset types to their corresponding CSV files
-    dataset_mapping = get_dataset_mapping()
-    
-    if dataset_type not in dataset_mapping:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Unknown dataset type: {dataset_type}. Available types: {list(dataset_mapping.keys())}"
-        )
-    
-    csv_file_path = dataset_mapping[dataset_type]["file_path"]
-    
-    if not os.path.exists(csv_file_path):
-        raise HTTPException(
-            status_code=404, 
-            detail=f"CSV file for dataset type '{dataset_type}' not found at {csv_file_path}"
-        )
-    
+    # Check for ingested datasets in DataSpaces
     try:
-        import pandas as pd
+        import json
+
+        from api.models.dspaces_model import BoundingBox, Interval
+        from api.services.dspaces_services.get_dspaces_obj import get_dspaces_obj
+        from api.services.dspaces_services.get_dspaces_vars import get_dspaces_vars
+        from api.services.dspaces_services.ingest_csv_data import (
+            retrieve_csv_from_dspaces,
+        )
         
-        # Read just the sample rows plus one to get total count efficiently
-        df_sample = pd.read_csv(csv_file_path, nrows=rows)
+        # Look for ingested datasets that might match the dataset_type
+        all_vars = get_dspaces_vars()
+        if not all_vars:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Dataset type '{dataset_type}' not found. No datasets have been ingested from URLs yet. Please use the ingest endpoints to load datasets from URLs first."
+            )
         
-        # Get total row count (more efficient method)
-        with open(csv_file_path, 'r') as f:
-            total_rows = sum(1 for _ in f) - 1  # Subtract 1 for header
+        # Find namespaces that have ingestion metadata
+        matching_namespaces = []
+        for var in all_vars:
+            if var.endswith("\\__ingestion_metadata__"):
+                namespace = var.replace("\\__ingestion_metadata__", "")
+                # Check if this namespace might match the dataset_type
+                # Try various matching strategies:
+                # 1. Exact match
+                # 2. Namespace contains dataset_type (with underscores)
+                # 3. dataset_type contains part of namespace
+                dataset_type_normalized = dataset_type.replace("-", "_")
+                namespace_normalized = namespace.replace("\\", "_").replace("/", "_")
+                
+                if (namespace_normalized == dataset_type_normalized or
+                    dataset_type_normalized in namespace_normalized or
+                    namespace_normalized in dataset_type_normalized or
+                    namespace.endswith(dataset_type_normalized) or
+                    namespace.startswith(dataset_type_normalized)):
+                    matching_namespaces.append(namespace)
         
-        # Get column information
-        column_info = {}
-        for col in df_sample.columns:
-            # Convert sample values to native Python types
-            sample_values = df_sample[col].head(3).tolist()
-            # Convert numpy types to native Python types
-            sample_values = [val.item() if hasattr(val, 'item') else val for val in sample_values]
+        if not matching_namespaces:
+            # Try fallback: look for any namespaces that might contain data
+            # This handles cases where dataset_type doesn't exactly match namespace
+            fallback_namespaces = set()
+            for var in all_vars:
+                if var.endswith("\\__ingestion_metadata__"):
+                    namespace = var.replace("\\__ingestion_metadata__", "")
+                    fallback_namespaces.add(namespace)
             
-            column_info[col] = {
-                "dtype": str(df_sample[col].dtype),
-                "sample_values": sample_values,
-                "non_null_count": int(df_sample[col].notna().sum())
+            if fallback_namespaces:
+                # If we only have one namespace, use it
+                if len(fallback_namespaces) == 1:
+                    matching_namespaces = list(fallback_namespaces)
+                else:
+                    available_namespaces = list(fallback_namespaces)
+                    raise HTTPException(
+                        status_code=404,
+                        detail=f"Dataset type '{dataset_type}' not found. Available ingested namespaces: {available_namespaces}"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Dataset type '{dataset_type}' not found. No ingested datasets available."
+                )
+        
+        # Use the first matching namespace (or the only one)
+        namespace = matching_namespaces[0]
+        
+        # Try to retrieve sample data from the ingested dataset
+        try:
+            # Get a limited sample from the ingested dataset
+            df_sample = retrieve_csv_from_dspaces(namespace=namespace, version=0)
+            
+            if df_sample.empty:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Dataset '{dataset_type}' found but contains no data in namespace '{namespace}'"
+                )
+            
+            # Limit to requested number of rows
+            df_sample = df_sample.head(rows)
+            total_rows = len(df_sample)  # We can't easily get the total without reading everything
+            
+            # Try to get total row count from metadata if available
+            try:
+                metadata_box = BoundingBox(bounds=[Interval(start=0, span=1000000)])
+                metadata_obj = get_dspaces_obj(namespace, "__ingestion_metadata__", 0, metadata_box)
+                if metadata_obj is not None:
+                    metadata_json = metadata_obj.tobytes().decode('utf-8')
+                    metadata = json.loads(metadata_json)
+                    file_info = metadata.get("file_info", {})
+                    total_rows = file_info.get("total_rows", len(df_sample))
+                    original_file_path = file_info.get("file_path", f"Ingested dataset in namespace '{namespace}'")
+                else:
+                    original_file_path = f"Ingested dataset in namespace '{namespace}'"
+            except Exception:
+                original_file_path = f"Ingested dataset in namespace '{namespace}'"
+            
+            # Get column information
+            column_info = {}
+            for col in df_sample.columns:
+                # Convert sample values to native Python types
+                sample_values = df_sample[col].head(3).tolist()
+                # Convert numpy types to native Python types
+                sample_values = [val.item() if hasattr(val, 'item') else val for val in sample_values]
+                
+                column_info[col] = {
+                    "dtype": str(df_sample[col].dtype),
+                    "sample_values": sample_values,
+                    "non_null_count": int(df_sample[col].notna().sum())
+                }
+            
+            result = {
+                "sample_data": df_sample.to_dict(orient="records"),
+                "total_rows": int(total_rows),
+                "total_columns": int(len(df_sample.columns)),
+                "columns": column_info,
+                "file_info": {
+                    "file_path": original_file_path,
+                    "file_size_bytes": None,  # Not available for ingested datasets
+                    "sample_rows_returned": int(len(df_sample)),
+                    "data_source": "ingested_dataset",
+                    "namespace": namespace
+                }
             }
-        
-        result = {
-            "sample_data": df_sample.to_dict(orient="records"),
-            "total_rows": int(total_rows),
-            "total_columns": int(len(df_sample.columns)),
-            "columns": column_info,
-            "file_info": {
-                "file_path": csv_file_path,
-                "file_size_bytes": int(os.path.getsize(csv_file_path)),
-                "sample_rows_returned": int(len(df_sample))
-            }
-        }
-        
-        return result
-        
+            
+            return result
+            
+        except Exception as e:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to retrieve sample from ingested dataset '{dataset_type}' in namespace '{namespace}': {str(e)}"
+            )
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read CSV file: {str(e)}")
-
-
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to search for ingested dataset '{dataset_type}': {str(e)}"
+        )
 
 @router.get("/retrieve/{dataset_type}/{namespace}/filter",
             status_code=200,
             summary="Filter CSV dataset with advanced criteria",
-            response_model=SaltLakeFilterResponse
+            response_model=CSVDatasetFilterResponse
 )
 def filter_csv_dataset_data(
     dataset_type: Annotated[
@@ -1283,7 +1217,7 @@ def filter_csv_dataset_data(
             description="Comma-separated list of column names to return"
         )
     ] = None
-) -> SaltLakeFilterResponse:
+) -> CSVDatasetFilterResponse:
     """
     Filter Salt Lake County data using advanced criteria.
     
@@ -1357,7 +1291,7 @@ def filter_csv_dataset_data(
                 raise HTTPException(status_code=400, detail=f"Invalid date format for date_to: {date_to}. Use YYYY-MM-DD.")
         
         # Create filter request
-        filter_request = SaltLakeFilterRequest(
+        filter_request = CSVDatasetFilterRequest(
             date_from=parsed_date_from,
             date_to=parsed_date_to,
             time_from=time_from,
@@ -1380,7 +1314,7 @@ def filter_csv_dataset_data(
         # Apply filters
         result = filter_csv_dataset(namespace, filter_request, version)
         
-        return SaltLakeFilterResponse(
+        return CSVDatasetFilterResponse(
             data=result["data"],
             metadata=result["metadata"],
             filter_summary=result["filter_summary"]
@@ -1394,7 +1328,7 @@ def filter_csv_dataset_data(
 @router.post("/retrieve/{dataset_type}/{namespace}/filter",
              status_code=200,
              summary="Filter CSV dataset with JSON criteria",
-             response_model=SaltLakeFilterResponse
+             response_model=CSVDatasetFilterResponse
 )
 def filter_csv_dataset_data_json(
     dataset_type: Annotated[
@@ -1414,7 +1348,7 @@ def filter_csv_dataset_data_json(
         )
     ],
     filter_request: Annotated[
-        SaltLakeFilterRequest,
+        CSVDatasetFilterRequest,
         Body(
             title="Filter criteria",
             description="JSON object containing filtering criteria"
@@ -1428,7 +1362,7 @@ def filter_csv_dataset_data_json(
             ge=0
         )
     ] = 0
-) -> SaltLakeFilterResponse:
+) -> CSVDatasetFilterResponse:
     """
     Filter Salt Lake County data using JSON criteria.
     
@@ -1465,7 +1399,7 @@ def filter_csv_dataset_data_json(
         # Apply filters
         result = filter_csv_dataset(namespace, filter_request, version)
         
-        return SaltLakeFilterResponse(
+        return CSVDatasetFilterResponse(
             data=result["data"],
             metadata=result["metadata"],
             filter_summary=result["filter_summary"]
@@ -1477,7 +1411,7 @@ def filter_csv_dataset_data_json(
 @router.post("/retrieve/{dataset_type}/{namespace}/aggregate",
              status_code=200,
              summary="Get aggregated CSV dataset data",
-             response_model=SaltLakeAggregateResponse
+             response_model=CSVDatasetAggregateResponse
 )
 def aggregate_csv_dataset_data(
     dataset_type: Annotated[
@@ -1497,7 +1431,7 @@ def aggregate_csv_dataset_data(
         )
     ],
     aggregate_request: Annotated[
-        SaltLakeAggregateRequest,
+        CSVDatasetAggregateRequest,
         Body(
             title="Aggregation criteria",
             description="JSON object containing aggregation criteria"
@@ -1511,7 +1445,7 @@ def aggregate_csv_dataset_data(
             ge=0
         )
     ] = 0
-) -> SaltLakeAggregateResponse:
+) -> CSVDatasetAggregateResponse:
     """
     Get aggregated Salt Lake County data.
     
@@ -1554,7 +1488,7 @@ def aggregate_csv_dataset_data(
         # Apply aggregation
         result = aggregate_csv_dataset(namespace, aggregate_request, version)
         
-        return SaltLakeAggregateResponse(
+        return CSVDatasetAggregateResponse(
             data=result["data"],
             metadata=result["metadata"],
             group_by=result["group_by"],

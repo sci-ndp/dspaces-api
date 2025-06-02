@@ -231,3 +231,9 @@ def validate_csv_file(file_path: str, max_sample_lines: int = 10) -> dict:
         }
     except Exception as e:
         raise IOError(f"Could not validate CSV file {file_path}: {str(e)}")
+
+
+# Utility function to dynamically generate ingestion paths
+def get_dynamic_ingestion_path(dataset_name):
+    # Replace this logic with actual dynamic path generation
+    return f"/dynamic/path/{dataset_name}.csv"
