@@ -1,5 +1,4 @@
 services:
-
   api:
     container_name: dspaces-api
     build:
@@ -8,6 +7,7 @@ services:
     env_file: ./env_variables/.env_api
     volumes:
       - .:/app
+      - ./data:/data
     working_dir: /app
     command: ./start.sh
     ports:
@@ -24,12 +24,12 @@ services:
   dspaces:
     container_name: dspaces
     image: philipdavis/dspaces-server:v01082024
-    env_file:  ./env_variables/.env_dspaces
+    env_file: ./env_variables/.env_dspaces
     environment:
       - OFI_STRING=tcp://eth0:${DSPACES_SERVER_PORT}
       - REPO_BRANCH=${DSPACES_SERVER_CHECKOUT}
     healthcheck:
-      test: [ "CMD", "nc", "-z", "dspaces", '${DSPACES_SERVER_PORT}' ]
+      test: ["CMD", "nc", "-z", "dspaces", "${DSPACES_SERVER_PORT}"]
     ports:
       - "${DSPACES_SERVER_PORT}:${DSPACES_SERVER_PORT}"
     volumes:

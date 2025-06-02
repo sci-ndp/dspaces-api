@@ -1,3 +1,5 @@
+import hashlib
+import json
 import os
 from typing import Annotated, Optional
 
@@ -55,11 +57,11 @@ def get_dataset_mapping() -> dict:
     """
     return {
         "salt-lake-county": {
-            "file_path": "data/salt_lake_county_utah_2016.csv",
+            "file_path": "/data/salt_lake_county_utah_2016.csv",
             "description": "Salt Lake County air quality monitoring data for 2016"
         },
         "air-quality": {
-            "file_path": "data/hourly_42602_2016.csv", 
+            "file_path": "/data/hourly_42602_2016.csv", 
             "description": "Hourly air quality measurements for station 42602 in 2016"
         }
         # Add more dataset types as needed
@@ -83,17 +85,19 @@ def list_available_datasets() -> DatasetListResponse:
     This endpoint helps discover what datasets are available for analysis
     and provides the necessary information to work with each dataset.
     """
+    from api.models.dspaces_model import BoundingBox, Interval
+    from api.services.dspaces_services.get_dspaces_obj import get_dspaces_obj
+    
     dataset_mapping = get_dataset_mapping()
     datasets = []
     
+    # Add static/predefined datasets from mapping
     for dataset_type, info in dataset_mapping.items():
         file_path = info["file_path"]
         file_exists = os.path.exists(file_path)
         file_size = os.path.getsize(file_path) if file_exists else None
         
         # Generate a unique dataset ID based on dataset type with short hash for uniqueness
-        import hashlib
-        # Create a more readable unique ID: dataset_type + short hash
         unique_string = f"{dataset_type}_{info['description']}_{file_path}"
         short_hash = hashlib.md5(unique_string.encode()).hexdigest()[:8]
         dataset_id = f"{dataset_type}_{short_hash}"
@@ -107,6 +111,113 @@ def list_available_datasets() -> DatasetListResponse:
             sample_endpoint=f"/dspaces/ingest/{dataset_type}/sample"
         )
         datasets.append(dataset_info)
+    
+    # Add dynamically ingested datasets from DataSpaces
+    try:
+        # Get all variables stored in DataSpaces
+        all_vars = get_dspaces_vars()
+        if all_vars:
+            # Find namespaces that have ingestion metadata
+            namespaces_with_metadata = set()
+            for var in all_vars:
+                if var.endswith("\\__ingestion_metadata__"):
+                    namespace = var.replace("\\__ingestion_metadata__", "")
+                    namespaces_with_metadata.add(namespace)
+            
+            # For each namespace with metadata, try to retrieve the metadata
+            for namespace in namespaces_with_metadata:
+                try:
+                    # Skip if this namespace corresponds to a static dataset
+                    skip_namespace = False
+                    for static_type in dataset_mapping.keys():
+                        if namespace.endswith(static_type.replace("-", "_")) or static_type.replace("-", "_") in namespace:
+                            skip_namespace = True
+                            break
+                    
+                    if skip_namespace:
+                        continue
+                    
+                    # Retrieve the ingestion metadata
+                    metadata_box = BoundingBox(bounds=[Interval(start=0, span=1000000)])  # Large enough for metadata
+                    metadata_obj = get_dspaces_obj(namespace, "__ingestion_metadata__", 0, metadata_box)
+                    
+                    if metadata_obj is not None:
+                        # Decode and parse metadata
+                        metadata_json = metadata_obj.tobytes().decode('utf-8')
+                        metadata = json.loads(metadata_json)
+                        file_info = metadata.get("file_info", {})
+                        
+                        # Create dataset info for the ingested dataset
+                        original_file_path = file_info.get("file_path", "Unknown")
+                        total_rows = file_info.get("total_rows", 0)
+                        total_columns = file_info.get("total_columns", 0)
+                        
+                        # Create a description based on the metadata
+                        if original_file_path.startswith("Downloaded from:"):
+                            description = f"URL-ingested dataset from {original_file_path.replace('Downloaded from: ', '')}"
+                            file_display_path = original_file_path
+                        else:
+                            description = f"Ingested CSV dataset ({total_rows} rows, {total_columns} columns)"
+                            file_display_path = original_file_path
+                        
+                        # Generate a unique dataset ID for the ingested dataset
+                        unique_string = f"ingested_{namespace}_{description}"
+                        short_hash = hashlib.md5(unique_string.encode()).hexdigest()[:8]
+                        dataset_id = f"ingested_{namespace}_{short_hash}"
+                        
+                        # Determine the dataset type from namespace or use "ingested-data"
+                        if namespace.startswith("datasets"):
+                            dataset_type = "ingested-data"
+                        else:
+                            dataset_type = namespace.replace("\\", "-").replace("/", "-")
+                        
+                        dataset_info = DatasetInfo(
+                            dataset_id=dataset_id,
+                            description=description,
+                            file_path=file_display_path,
+                            file_exists=True,  # Assume true since it's been ingested
+                            file_size_bytes=None,  # Not available for ingested datasets
+                            sample_endpoint=f"/dspaces/retrieve/{dataset_type}/{namespace}?limit=10"
+                        )
+                        datasets.append(dataset_info)
+                        
+                except Exception as e:
+                    # Log the error but continue processing other namespaces
+                    print(f"Warning: Could not retrieve metadata for namespace {namespace}: {str(e)}")
+                    
+                    # Fallback: create dataset info without detailed metadata
+                    try:
+                        # Generate a unique dataset ID for the ingested dataset
+                        unique_string = f"ingested_{namespace}_fallback"
+                        short_hash = hashlib.md5(unique_string.encode()).hexdigest()[:8]
+                        dataset_id = f"ingested_{namespace}_{short_hash}"
+                        
+                        # Determine the dataset type from namespace or use "ingested-data"
+                        if namespace.startswith("datasets"):
+                            dataset_type = "ingested-data"
+                        else:
+                            dataset_type = namespace.replace("\\", "-").replace("/", "-")
+                        
+                        # Create fallback description
+                        description = f"Ingested dataset in namespace '{namespace}' (metadata unavailable)"
+                        
+                        dataset_info = DatasetInfo(
+                            dataset_id=dataset_id,
+                            description=description,
+                            file_path="Ingested dataset (original file path unavailable)",
+                            file_exists=True,  # Assume true since it's been ingested
+                            file_size_bytes=None,  # Not available for ingested datasets
+                            sample_endpoint=f"/dspaces/retrieve/{dataset_type}/{namespace}?limit=10"
+                        )
+                        datasets.append(dataset_info)
+                    except Exception as fallback_error:
+                        print(f"Warning: Could not create fallback dataset info for namespace {namespace}: {str(fallback_error)}")
+                    continue
+                    
+    except Exception as e:
+        # If DataSpaces query fails, just continue with static datasets
+        print(f"Warning: Could not query DataSpaces for ingested datasets: {str(e)}")
+        pass
     
     return DatasetListResponse(
         datasets=datasets,
@@ -731,10 +842,11 @@ def ingest_csv_dataset_from_url(
     downloaded_file_path = None
     
     try:
-        # Download the CSV file from the URL
+        # Download the CSV file from the URL to the /data directory
         downloaded_file_path = download_csv_from_url(
             url=request.url,
             custom_filename=request.filename,
+            download_dir="/data",  # Store downloaded files in /data directory
             timeout=300  # 5 minute timeout
         )
         
