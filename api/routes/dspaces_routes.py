@@ -6,8 +6,14 @@ from dspaces import DSConnectionError, DSModuleError, DSRemoteFaultError
 from fastapi import APIRouter, Body, File, Form, HTTPException, Path, Query, Response
 
 from api.config import dspaces_settings
+from api.helpers.file_download import (
+    cleanup_downloaded_file,
+    download_csv_from_url,
+    validate_csv_file,
+)
 from api.models.dspaces_model import (
     BoundingBox,
+    CSVIngestionFromURLRequest,
     CSVIngestionRequest,
     CSVIngestionResponse,
     DatasetInfo,
@@ -568,8 +574,6 @@ def ds_reg(
     except DSConnectionError:
         raise HTTPException(status_code=500, detail="backend server connection failed")
 
-
-
 @router.post("/ingest/{dataset_type}",
              status_code=200,
              summary="Ingest CSV dataset into DataSpaces",
@@ -666,6 +670,115 @@ def ingest_csv_dataset(
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Ingestion failed: {str(e)}")
+
+
+@router.post("/ingest/{dataset_type}/from-url",
+             status_code=200,
+             summary="Ingest CSV dataset from URL into DataSpaces",
+             response_model=CSVIngestionResponse
+)
+def ingest_csv_dataset_from_url(
+    dataset_type: Annotated[
+        str,
+        Path(
+            title="Dataset type",
+            description="Type/identifier of the CSV dataset (e.g., 'air-quality', 'environmental-data', etc.)",
+            max_length=96
+        )
+    ],
+    request: Annotated[
+        CSVIngestionFromURLRequest,
+        Body(
+            title="URL ingestion request",
+            description="Parameters for CSV ingestion from URL"
+        )
+    ]
+) -> CSVIngestionResponse:
+    """
+    Download a CSV file from a URL and ingest it into DataSpaces.
+    
+    This endpoint downloads a CSV file from the provided URL, validates it,
+    and then ingests it into DataSpaces using the same logic as the regular
+    CSV ingestion endpoint. The downloaded file is automatically cleaned up
+    after ingestion.
+    
+    Parameters
+    ----------
+    - **url**: the URL to download the CSV file from
+    - **namespace**: the namespace to store the data under (default: "datasets")
+    - **version**: version number for the stored objects (default: 0)
+    - **chunk_size**: number of rows to process at once for large files (default: 10000)
+    - **filename**: optional custom filename for the downloaded file
+    
+    Returns
+    -------
+    A summary of the ingestion process including:
+    - **file_path**: path to the downloaded and ingested CSV file
+    - **total_rows**: number of rows processed
+    - **total_columns**: number of columns processed
+    - **columns**: list of column names
+    - **namespace**: namespace used for storage
+    - **version**: version number used
+    - **stored_objects**: detailed information about each stored column
+    - **success**: whether the ingestion was successful
+    - **message**: summary message
+    
+    Raises
+    ------
+    **HTTPException** if the URL is invalid, download fails, or ingestion fails
+    """
+    
+    downloaded_file_path = None
+    
+    try:
+        # Download the CSV file from the URL
+        downloaded_file_path = download_csv_from_url(
+            url=request.url,
+            custom_filename=request.filename,
+            timeout=300  # 5 minute timeout
+        )
+        
+        # Validate that the downloaded file is a valid CSV
+        validation_result = validate_csv_file(downloaded_file_path)
+        if not validation_result['is_valid']:
+            raise ValueError(f"Downloaded file is not a valid CSV: {validation_result['error']}")
+        
+        # Perform the ingestion using the existing logic
+        ingestion_result = ingest_csv_to_dspaces(
+            csv_file_path=downloaded_file_path,
+            namespace=request.namespace,
+            version=request.version,
+            chunk_size=request.chunk_size
+        )
+        
+        # Count successful storage operations
+        successful_objects = len([k for k, v in ingestion_result["stored_objects"].items() if "error" not in v])
+        total_objects = len(ingestion_result["stored_objects"])
+        
+        response = CSVIngestionResponse(
+            file_path=f"Downloaded from: {request.url}",
+            total_rows=ingestion_result["total_rows"],
+            total_columns=ingestion_result["total_columns"],
+            columns=ingestion_result["columns"],
+            namespace=ingestion_result["namespace"],
+            version=ingestion_result["version"],
+            stored_objects=ingestion_result["stored_objects"],
+            success=successful_objects == total_objects,
+            message=f"Successfully downloaded from URL and ingested {successful_objects} out of {total_objects} columns from {dataset_type} dataset"
+        )
+        
+        return response
+        
+    except ValueError as e:
+        # Handle URL download and validation errors
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        # Handle unexpected errors
+        raise HTTPException(status_code=500, detail=f"URL ingestion failed: {str(e)}")
+    finally:
+        # Always clean up the downloaded file
+        if downloaded_file_path:
+            cleanup_downloaded_file(downloaded_file_path)
 
 
 @router.get("/retrieve/{dataset_type}/{namespace}",
