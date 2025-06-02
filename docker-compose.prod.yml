@@ -1,0 +1,50 @@
+services:
+  api:
+    container_name: dspaces-api-prod
+    image: jaytau/dspaces-server:v20250602
+    env_file: ./env_variables/.env_api
+    volumes:
+      # Mount data directory for runtime updates (optional - image already includes static data)
+      - ./data:/data
+      # Mount configuration files
+      - ./dspaces.toml:/app/dspaces.toml:ro
+      - ./dspaces_reg.db:/app/dspaces_reg.db:rw
+    working_dir: /app
+    ports:
+      - "${API_PORT:-8000}:${API_PORT:-8000}"
+    depends_on:
+      dspaces:
+        condition: service_healthy
+    environment:
+      - DSPACES_SERVER_PORT=${DSPACES_SERVER_PORT:-4444}
+      - API_PORT=${API_PORT:-8000}
+    networks:
+      - ds-backend
+    restart: unless-stopped
+
+  dspaces:
+    container_name: dspaces-prod
+    image: philipdavis/dspaces-server:v01082024
+    env_file: ./env_variables/.env_dspaces
+    environment:
+      - OFI_STRING=tcp://eth0:${DSPACES_SERVER_PORT:-4444}
+      - REPO_BRANCH=${DSPACES_SERVER_CHECKOUT:-main}
+    healthcheck:
+      test: ["CMD", "nc", "-z", "dspaces", "${DSPACES_SERVER_PORT:-4444}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    ports:
+      - "${DSPACES_SERVER_PORT:-4444}:${DSPACES_SERVER_PORT:-4444}"
+    volumes:
+      - ./dspaces.toml:/dspaces.toml:ro
+      - ./dspaces_reg.db:/dspaces_reg.db:rw
+    networks:
+      - ds-backend
+    restart: unless-stopped
+
+networks:
+  ds-backend:
+    name: ds-backend-prod
+    driver: bridge

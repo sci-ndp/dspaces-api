@@ -1,0 +1,58 @@
+# Ignore version control
+.git
+.gitignore
+
+# Ignore Python cache and build files
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+build
+develop-eggs
+dist
+downloads
+eggs
+.eggs
+lib
+lib64
+parts
+sdist
+var
+wheels
+*.egg-info
+.installed.cfg
+*.egg
+
+# Ignore virtual environments
+venv/
+env/
+ENV/
+
+# Ignore test files
+test_*.py
+*_test.py
+
+# Ignore documentation
+docs/
+README.md
+LICENSE
+
+# Ignore environment files (these should be provided at runtime)
+.env
+.env.*
+env_variables/
+
+# Ignore docker files (we don't need these in the image)
+docker-compose.yml
+Dockerfile
+.dockerignore
+
+# Ignore lock files
+uv.lock
+
+# Ignore demo and showcase files
+demo_*.py
+*_showcase.py
+comprehensive_url_test.py
+ingest_salt_lake_data.py
