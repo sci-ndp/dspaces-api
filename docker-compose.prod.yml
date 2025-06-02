@@ -1,7 +1,7 @@
 services:
   api:
     container_name: dspaces-api-prod
-    image: jaytau/dspaces-server:v20250602
+    image: jaytau/dspaces-server:v02062025
     env_file: ./env_variables/.env_api
     volumes:
       # Mount data directory for runtime updates (optional - image already includes static data)
