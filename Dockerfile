@@ -7,8 +7,8 @@ WORKDIR /app
 # Copy the application code
 COPY . /app/
 
-# Copy static data (can be overridden by volume mounts)
-COPY data/ /data/
+# Create empty data directory for newly ingested datasets only
+RUN mkdir -p /data
 
 # Install Python dependencies
 RUN pip install -r requirements.txt
