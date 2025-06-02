@@ -1,4 +1,3 @@
-# How to Demo the Salt Lake City (SLC) Data API Showcase
 
 This guide provides step-by-step instructions to demonstrate the Salt Lake City air quality data showcase using the DataSpaces API.
 
