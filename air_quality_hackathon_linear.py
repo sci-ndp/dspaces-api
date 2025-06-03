@@ -27,9 +27,6 @@ making it easy to follow step-by-step.
 
 ## 💻 Usage
 Run this script to execute the complete DataSpaces API workflow sequentially.
-
-**Author**: Air Quality Hackathon Team  
-**Date**: June 2025
 """
 
 # =============================================================================
@@ -69,7 +66,7 @@ print("🔕 Warnings filtered for cleaner output")
 BASE_URL = "http://localhost:8001"                    # DataSpaces API server URL
 DATASET_TYPE = "utah-meop-air-quality"                # Dataset type identifier
 NAMESPACE = "meop_october_2024"                       # Namespace for organizing data
-CSV_URL = "https://horel.chpc.utah.edu/data/meop/level2/ebus_2024_10.csv"  # Source data URL
+CSV_URL = "https://horel.chpc.utah.edu/data/meop/level2/2024/ebus_2024_08.csv"  # Source data URL
 VERSION = 0                                           # Dataset version
 
 # Create a global session for API requests
@@ -228,11 +225,13 @@ except Exception as e:
     sample_data = None
 
 # =============================================================================
-# 🔍 STEP 6: Discover Available Filters
+# 🔍 STEP 6: Discover Available Filters and Column Information
 # =============================================================================
 
-print("\n🔍 Discovering available filters and value ranges...")
+print("\n🔍 Discovering available filters and column information...")
 
+# First try the API filter discovery
+api_filters_available = False
 try:
     response = session.get(
         f"{BASE_URL}/dspaces/retrieve/{DATASET_TYPE}/{NAMESPACE}/available-filters"
@@ -240,23 +239,64 @@ try:
     
     if response.status_code == 200:
         filters = response.json()
-        print(f"✅ Retrieved filter information for {len(filters)} columns")
+        print(f"✅ Retrieved API filter information for {len(filters)} columns")
         
-        print(f"\n🔍 Available Filters ({len(filters)} total):")
-        for filter_name, values in list(filters.items())[:5]:  # Show first 5 filters
-            if isinstance(values, list) and len(values) <= 10:
-                print(f"  • {filter_name}: {values}")
-            elif isinstance(values, list):
-                print(f"  • {filter_name}: {values[:3]}... ({len(values)} total values)")
-            else:
-                print(f"  • {filter_name}: {type(values).__name__} data")
-                
+        # Check if filters have meaningful data
+        non_empty_filters = {k: v for k, v in filters.items() if v and len(v) > 0}
+        
+        if non_empty_filters:
+            print(f"\n🔍 Available API Filters ({len(non_empty_filters)} with data):")
+            for filter_name, values in list(non_empty_filters.items())[:5]:
+                if isinstance(values, list) and len(values) <= 10:
+                    print(f"  • {filter_name}: {values}")
+                elif isinstance(values, list):
+                    print(f"  • {filter_name}: {values[:3]}... ({len(values)} total values)")
+                else:
+                    print(f"  • {filter_name}: {type(values).__name__} data")
+            api_filters_available = True
+        else:
+            print("⚠️ API filters returned empty - will analyze sample data instead")
     else:
         print(f"❌ Error getting available filters: HTTP {response.status_code}")
-        filters = None
+        
 except Exception as e:
     print(f"❌ Error retrieving filter information: {e}")
-    filters = None
+
+# If API filters are empty or unavailable, analyze sample data for column insights
+if not api_filters_available and sample_data:
+    print("\n🔍 Analyzing sample data for column insights...")
+    
+    column_info = sample_data.get('column_info', {})
+    if column_info:
+        print(f"📊 Column Analysis ({len(column_info)} total columns):")
+        
+        # Categorize columns by type for better filtering insights
+        numeric_cols = []
+        text_cols = []
+        time_cols = []
+        
+        for col, info in column_info.items():
+            data_type = info.get('data_type', 'unknown').lower()
+            if 'int' in data_type or 'float' in data_type or 'number' in data_type:
+                numeric_cols.append(col)
+            elif 'time' in data_type or 'date' in data_type:
+                time_cols.append(col)
+            else:
+                text_cols.append(col)
+        
+        print(f"  • 📊 Numeric columns ({len(numeric_cols)}): {numeric_cols[:5]}{'...' if len(numeric_cols) > 5 else ''}")
+        print(f"  • 📝 Text/categorical columns ({len(text_cols)}): {text_cols[:5]}{'...' if len(text_cols) > 5 else ''}")
+        print(f"  • ⏰ Time columns ({len(time_cols)}): {time_cols[:3]}{'...' if len(time_cols) > 3 else ''}")
+        
+        print("\n💡 Filtering suggestions:")
+        if numeric_cols:
+            print(f"   → Use numeric filters on: {', '.join(numeric_cols[:3])}")
+        if text_cols:
+            print(f"   → Use categorical filters on: {', '.join(text_cols[:3])}")
+        if time_cols:
+            print(f"   → Use temporal filters on: {', '.join(time_cols[:2])}")
+    else:
+        print("⚠️ No column information available for analysis")
 
 # =============================================================================
 # 📊 STEP 7: Retrieve Basic Data Sample
@@ -353,47 +393,95 @@ print("="*60)
 
 if not df_basic.empty:
     print(f"🌬️ Analyzing air quality parameters in {len(df_basic):,} records...")
+    print("🎯 Focusing on O3 (Ozone) measurements for detailed analysis...")
     
-    # Identify air quality parameter columns using keyword matching
-    aq_keywords = ['pm2.5', 'pm10', 'pm25', 'o3', 'ozone', 'no2', 'co', 'so2', 
-                  'pollutant', 'concentration', 'aqi', 'quality', 'emission']
+    # First, let's identify all available air quality columns
+    all_columns = list(df_basic.columns)
+    print(f"📋 Available columns ({len(all_columns)}): {', '.join(all_columns)}")
+    
+    # Check specifically for O3 column first
+    if 'O3' in df_basic.columns:
+        print("\n✅ Found O3 (Ozone) column - primary air quality parameter")
+        
+        # Detailed O3 analysis
+        o3_series = df_basic['O3']
+        print("📊 O3 Column Overview:")
+        print(f"  • Total rows: {len(o3_series):,}")
+        print(f"  • Non-null values: {o3_series.notna().sum():,}")
+        print(f"  • Null/empty values: {o3_series.isna().sum():,}")
+        
+        # Convert to numeric and analyze
+        o3_values = pd.to_numeric(o3_series, errors='coerce').dropna()
+        
+        if len(o3_values) > 0:
+            print(f"\n📊 Comprehensive O3 (Ozone) Analysis ({len(o3_values):,} valid readings):")
+            print(f"  • Mean concentration: {o3_values.mean():.3f} ppb")
+            print(f"  • Std Dev: {o3_values.std():.3f} ppb")
+            print(f"  • Min concentration: {o3_values.min():.3f} ppb")
+            print(f"  • Max concentration: {o3_values.max():.3f} ppb")
+            print(f"  • Median: {o3_values.median():.3f} ppb")
+            print(f"  • 25th percentile: {o3_values.quantile(0.25):.3f} ppb")
+            print(f"  • 75th percentile: {o3_values.quantile(0.75):.3f} ppb")
+            print(f"  • 95th percentile: {o3_values.quantile(0.95):.3f} ppb")
+            
+            # O3 air quality context with EPA standards
+            print("\n🌬️ O3 Air Quality Assessment (EPA Standards):")
+            high_o3 = (o3_values > 70).sum()  # EPA 8-hour standard is 70 ppb
+            moderate_o3 = ((o3_values >= 55) & (o3_values <= 70)).sum()
+            good_o3 = (o3_values < 55).sum()
+            
+            print(f"  • 🟢 Good (< 55 ppb): {good_o3:,} readings ({good_o3/len(o3_values)*100:.1f}%)")
+            print(f"  • 🟡 Moderate (55-70 ppb): {moderate_o3:,} readings ({moderate_o3/len(o3_values)*100:.1f}%)")
+            print(f"  • 🔴 Unhealthy (> 70 ppb): {high_o3:,} readings ({high_o3/len(o3_values)*100:.1f}%)")
+            
+            # Data quality assessment
+            completeness = len(o3_values) / len(o3_series) * 100
+            print("\n📈 O3 Data Quality:")
+            print(f"  • Data completeness: {completeness:.1f}%")
+            if completeness > 80:
+                print("  • ✅ High quality - sufficient data for analysis")
+            elif completeness > 50:
+                print("  • ⚠️ Moderate quality - usable but with gaps")
+            else:
+                print("  • ❌ Low quality - significant data gaps")
+        else:
+            print("⚠️ O3 column found but contains no valid numeric data")
+            print("💡 Column may contain text values or be completely empty")
+    else:
+        print("⚠️ O3 column not found in dataset")
+    
+    # Analyze other potential air quality parameters
+    print("\n🔍 Scanning for other air quality parameters...")
+    aq_keywords = ['pm1', 'pm2.5', 'pm4', 'pm10', 'pm25', 'o3', 'ozone', 'no2', 'co', 'so2', 
+                  'pollutant', 'concentration', 'aqi', 'quality', 'emission', 'prhi']
     aq_columns = [col for col in df_basic.columns 
                  if any(keyword in col.lower() for keyword in aq_keywords)]
     
     if aq_columns:
-        print(f"🌬️ Found air quality parameter columns: {aq_columns}")
+        print(f"📊 Found potential air quality columns: {aq_columns}")
         
-        # Analyze each air quality parameter
-        for col in aq_columns[:3]:  # Analyze first 3 AQ columns for brevity
+        # Analyze each air quality column for data availability
+        print("\n📈 Air Quality Column Analysis:")
+        for col in aq_columns[:5]:  # Analyze first 5 air quality columns
             if col in df_basic.columns:
-                values = pd.to_numeric(df_basic[col], errors='coerce').dropna()
+                col_values = pd.to_numeric(df_basic[col], errors='coerce').dropna()
+                non_null_count = df_basic[col].notna().sum()
+                completeness = non_null_count / len(df_basic) * 100
                 
-                if len(values) > 0:
-                    print(f"\n📊 Analysis for '{col}':")
-                    print(f"  • Mean: {values.mean():.3f}")
-                    print(f"  • Std Dev: {values.std():.3f}")
-                    print(f"  • Min: {values.min():.3f}")
-                    print(f"  • Max: {values.max():.3f}")
-                    print(f"  • Valid measurements: {len(values):,}")
-                    
+                if len(col_values) > 0:
+                    print(f"  • {col}: {len(col_values):,} valid values ({completeness:.1f}% complete)")
+                    print(f"    Range: {col_values.min():.2f} - {col_values.max():.2f}, Mean: {col_values.mean():.2f}")
+                else:
+                    print(f"  • {col}: No valid numeric data ({completeness:.1f}% non-null)")
     else:
         # Look for any numeric columns that might be measurements
         numeric_cols = df_basic.select_dtypes(include=[np.number]).columns.tolist()
         if numeric_cols:
-            print(f"📊 Found numeric measurement columns: {numeric_cols[:5]}")
-            print("💡 These may contain air quality or environmental measurements")
-            
-            # Show basic statistics for first few numeric columns
-            for col in numeric_cols[:3]:
-                values = df_basic[col].dropna()
-                if len(values) > 0:
-                    print(f"\n📊 Analysis for '{col}':")
-                    print(f"  • Mean: {values.mean():.3f}")
-                    print(f"  • Range: {values.min():.3f} to {values.max():.3f}")
-                    print(f"  • Valid values: {len(values):,}")
+            print(f"📊 Found numeric measurement columns: {numeric_cols}")
+            print("💡 These may contain environmental or sensor measurements")
         else:
             print("⚠️ No numeric measurement columns found")
-            print("💡 Dataset may not contain air quality measurements")
+            print("💡 Dataset may not contain quantitative air quality measurements")
 else:
     print("❌ No data available for air quality analysis")
 
@@ -456,25 +544,25 @@ print("\n" + "="*60)
 print("🔍 ADVANCED FILTERING DEMONSTRATION")
 print("="*60)
 
-# Demonstrate filtering with some example criteria
+# Demonstrate filtering with O3 (Ozone) criteria specifically
 if not df_basic.empty:
-    # Get a numeric column for filtering demonstration
-    numeric_cols = df_basic.select_dtypes(include=[np.number]).columns.tolist()
-    
-    if numeric_cols:
-        filter_col = numeric_cols[0]  # Use first numeric column
+    # Check specifically for O3 column for filtering
+    if 'O3' in df_basic.columns:
+        filter_col = 'O3'  # Use O3 specifically
         col_values = pd.to_numeric(df_basic[filter_col], errors='coerce').dropna()
         
         if len(col_values) > 0:
-            # Create a filter for values above the median
-            median_value = col_values.median()
+            # Create a filter for O3 values above the 75th percentile (higher ozone levels)
+            threshold_value = col_values.quantile(0.75)
             
             custom_filters = {
-                filter_col: {"min": median_value}
+                filter_col: {"min": threshold_value}
             }
             
-            print("🔍 Applying custom filters (limit: 500 rows)...")
+            print("🔍 Applying O3 (Ozone) specific filters (limit: 500 rows)...")
+            print(f"🌬️ Filtering for high O3 ozone levels (>{threshold_value:.3f} ppb)")
             print(f"📋 Filter criteria: {custom_filters}")
+            print("💡 High ozone levels may indicate air quality concerns")
             
             try:
                 payload = {
@@ -497,79 +585,26 @@ if not df_basic.empty:
                     if filtered_data.get('data'):
                         df_filtered = pd.DataFrame(filtered_data.get('data', []))
                         filtered_values = pd.to_numeric(df_filtered[filter_col], errors='coerce').dropna()
-                        print(f"📊 Filtered {filter_col} statistics:")
-                        print(f"  • Min value: {filtered_values.min():.3f}")
-                        print(f"  • Max value: {filtered_values.max():.3f}")
-                        print(f"  • Mean: {filtered_values.mean():.3f}")
+                        print("📊 Filtered O3 air quality statistics:")
+                        print(f"  • Min value: {filtered_values.min():.3f} ppb")
+                        print(f"  • Max value: {filtered_values.max():.3f} ppb")
+                        print(f"  • Mean: {filtered_values.mean():.3f} ppb")
+                        print(f"  • Records with high O3: {len(filtered_values):,}")
                 else:
                     print(f"❌ Error applying filters: HTTP {response.status_code}")
                     print(f"Response details: {response.text}")
             except Exception as e:
-                print(f"❌ Error during data filtering: {e}")
+                print(f"❌ Error during O3 filtering: {e}")
         else:
-            print("⚠️ No numeric data available for filtering demonstration")
+            print("⚠️ No valid O3 data available for filtering demonstration")
     else:
-        print("⚠️ No numeric columns found for filtering demonstration")
+        print("⚠️ O3 column not found for filtering demonstration")
+        print("💡 Looking for O3 (Ozone) column in dataset")
+        print(f"📊 Available columns: {list(df_basic.columns)[:10]}...")  # Show first 10 columns
 else:
     print("❌ No data available for filtering demonstration")
 
-# =============================================================================
-# 📊 STEP 12: Statistical Aggregation Demonstration
-# =============================================================================
 
-print("\n" + "="*60)
-print("📊 STATISTICAL AGGREGATION DEMONSTRATION")
-print("="*60)
-
-if not df_basic.empty:
-    # Find suitable columns for aggregation
-    categorical_cols = df_basic.select_dtypes(include=['object']).columns.tolist()
-    numeric_cols = df_basic.select_dtypes(include=[np.number]).columns.tolist()
-    
-    if categorical_cols and numeric_cols:
-        group_col = categorical_cols[0]  # Use first categorical column
-        agg_col = numeric_cols[0]       # Use first numeric column
-        
-        print("\n📈 Performing data aggregation...")
-        print(f"📊 Grouping by: {group_col}")
-        print(f"🔢 Aggregating column: {agg_col}")
-        print("📋 Functions: mean, count, std")
-        print("🔢 Limit: 100 groups")
-        
-        try:
-            payload = {
-                "group_by": [group_col],
-                "aggregations": ["mean", "count", "std"],
-                "aggregation_column": agg_col,
-                "limit": 100,
-                "version": VERSION
-            }
-            
-            response = session.post(
-                f"{BASE_URL}/dspaces/retrieve/{DATASET_TYPE}/{NAMESPACE}/aggregate",
-                json=payload
-            )
-            
-            if response.status_code == 200:
-                agg_data = response.json()
-                group_count = len(agg_data.get('data', []))
-                print(f"✅ Aggregation completed - {group_count:,} groups generated")
-                
-                # Display first few aggregation results
-                if agg_data.get('data'):
-                    print("\n📊 First 5 aggregation results:")
-                    for i, result in enumerate(agg_data.get('data', [])[:5]):
-                        print(f"  Group {i+1}: {result}")
-            else:
-                print(f"❌ Error performing aggregation: HTTP {response.status_code}")
-                print(f"Response details: {response.text}")
-        except Exception as e:
-            print(f"❌ Error during data aggregation: {e}")
-    else:
-        print("⚠️ Insufficient column types for aggregation demonstration")
-        print(f"💡 Categorical columns: {len(categorical_cols)}, Numeric columns: {len(numeric_cols)}")
-else:
-    print("❌ No data available for aggregation demonstration")
 
 # =============================================================================
 # 🎉 STEP 13: Final Summary and Completion
