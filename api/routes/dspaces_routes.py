@@ -1672,7 +1672,7 @@ def get_available_filter_values(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get available filter values: {str(e)}")
 
-@router.get("/joel", summary="Joel route")
+'''@router.get("/joel", summary="Joel route")
 def joel():
     import logging
 
@@ -1993,4 +1993,4 @@ def joel():
         "data": df.to_dict(orient="records"),
         "verification": verification_results,
         "reconstruction": reconstruction_result
-    }
+    }'''
