@@ -12,7 +12,7 @@ class BoundingBox(BaseModel):
     @classmethod
     def validate_to_json(cls, value):
         if isinstance(value, str):
-            return cls(**json.loads(value))
+            return json.loads(value)
         return value
 
 class DSObject(BaseModel):
@@ -28,7 +28,7 @@ class RequestList(BaseModel):
     @classmethod
     def validate_to_json(cls, value):
         if isinstance(value, str):
-            return cls(**json.loads(value))
+            return json.loads(value)
         return value
     
 class DSRegHandle(BaseModel):

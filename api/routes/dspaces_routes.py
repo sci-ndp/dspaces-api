@@ -131,7 +131,7 @@ def ds_put(
         )
     ],
     box: Annotated[
-        BoundingBox,
+        str,
         Form(
             title="Bounding box",
             description="Bounding box region in which to place data",
@@ -184,6 +184,8 @@ def ds_put(
     ------
     **HTTPException** on failure.
     """
+    box = BoundingBox.model_validate_json(box)
+
     try:
         put_dspaces_obj(namespace, obj_name, obj_version, box, element_size, element_type, data)
         return {'message': "Stored data successfully"}
